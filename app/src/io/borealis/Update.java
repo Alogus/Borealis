@@ -199,7 +199,7 @@ final class Update {
                 while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
                 s.fsync(out);
             }
-            Intent i = new Intent(UpdateReceiver.ACTION).setPackage(c.getPackageName());
+            Intent i = new Intent(c, UpdateReceiver.class).setAction(UpdateReceiver.ACTION);   // explicit: the receiver has no intent filter
             int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
             s.commit(PendingIntent.getBroadcast(c, id, i, flags).getIntentSender());
         }
