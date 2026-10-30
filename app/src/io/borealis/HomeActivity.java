@@ -1,0 +1,186 @@
+package io.borealis;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.graphics.Color;
+import android.os.Bundle;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.KeyEvent;
+import android.widget.FrameLayout;
+import android.widget.TextView;
+
+/**
+ * The Borealis home screen (Android's "Home" role in Borealis mode). It runs in the :home process: if it crashes,
+ * the safety net in the main process keeps working. On the 3rd crash within 5 min, the Watchdog gives the home screen
+ * back to the TV's original one.
+ */
+public class HomeActivity extends Activity {
+    /** True while the home screen is the one on top (the settings use it to know where a fade-out lands). */
+    static volatile boolean resumed;
+    private HomeView home;
+    private SplashView splash;
+    private OnboardingView onboarding;
+    private FrameLayout root;
+    private int prefsVersion = Prefs.version;   // settings changed while we were away: start over
+
+    @Override protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        Watchdog.install(this);
+        Diag.event("HomeActivity.onCreate " + Diag.memory());
+        Diag.monitor();
+        if (Watchdog.crashedTooOften(this)) {
+            // Don't try to draw again: only show a notice while the main process restores the original home screen.
+            HomeMode.requestRevertHome(this);
+            TextView t = new TextView(this);
+            t.setText(Ui.tr("O Início do Borealis teve um problema.\nVoltando para o Início original da TV…",
+                    "Borealis's home screen ran into a problem.\nGoing back to the TV's original home screen…"));
+            t.setTextColor(Color.WHITE);
+            t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+            t.setGravity(Gravity.CENTER);
+            t.setBackgroundColor(Color.rgb(7, 11, 30));
+            setContentView(t);
+            return;
+        }
+        Ui.init(this);
+        home = new HomeView(this);
+        root = new FrameLayout(this);
+        root.addView(home, new FrameLayout.LayoutParams(-1, -1));
+        showWelcomeIfNeeded();   // under the opening, so it appears once the opening is over
+        if (savedInstanceState == null && coldStart()) playSplash();
+        setContentView(root);
+        getWindow().setBackgroundDrawable(null);
+    }
+
+    /** The welcome (first time, or asked for in Settings): a modal over the home screen. */
+    private void showWelcomeIfNeeded() {
+        if (root == null || onboarding != null || !OnboardingView.pending(this)) return;
+        final OnboardingBackdrop backdrop = new OnboardingBackdrop(this);
+        root.addView(backdrop, new FrameLayout.LayoutParams(-1, -1));
+        final OnboardingView mine = new OnboardingView(this, welcome -> {
+            // The special opening goes in front first, so there is no flash between the welcome and it.
+            if (welcome && root != null) {
+                if (splash != null) { root.removeView(splash); splash = null; }
+                newSplash(false, true);
+            }
+            if (root != null) { root.removeView(onboarding); root.removeView(backdrop); }
+            onboarding = null;
+            if (home != null) home.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+            if (home != null) home.resume();
+        });
+        onboarding = mine;
+        if (home != null) home.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        root.addView(mine, new FrameLayout.LayoutParams(-1, -1));
+        if (splash != null) splash.bringToFront();
+    }
+
+    private SplashView newSplash(boolean waiting) { return newSplash(waiting, false); }
+
+    private SplashView newSplash(boolean waiting, boolean welcome) {
+        final SplashView mine = new SplashView(this, waiting, welcome);
+        splash = mine;
+        mine.setDone(v -> {
+            if (root != null) root.removeView(v);
+            if (splash == v) splash = null;
+        });
+        root.addView(mine, new FrameLayout.LayoutParams(-1, -1));
+        return mine;
+    }
+
+    /** Plays the opening over the home screen: the one already waiting in front, or a new one. */
+    private void playSplash() {
+        if (root == null) return;
+        App.wakePending = false;
+        if (!Prefs.splash()) return;
+        if (splash != null) {
+            if (splash.waiting()) splash.start();
+            return;
+        }
+        newSplash(false);
+    }
+
+    /** The screen is going off: put the opening in place (waiting), so the TV wakes straight onto it and never shows the home first. */
+    private void prepareSplash() {
+        if (root == null || splash != null || !Prefs.splash()) return;
+        newSplash(true);
+    }
+
+    /**
+     * The opening plays when the TV was just turned on (the clock since boot restarted) or the home process starts again
+     * after a long time; not every time the process is rebuilt after a short break, nor when the screen is redrawn for a new language.
+     */
+    private boolean coldStart() {
+        long now = android.os.SystemClock.elapsedRealtime();
+        android.content.SharedPreferences sp = getSharedPreferences("splash", MODE_PRIVATE);
+        long last = sp.getLong("at", -1);
+        boolean show = last < 0 || now < last || now - last > 30 * 60 * 1000L;
+        if (show) sp.edit().putLong("at", now).apply();
+        return show;
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        resumed = true;
+        Diag.event("onResume splash=" + (splash == null ? "none" : splash.waiting() ? "waiting" : "playing") + " " + Diag.memory());
+        if (prefsVersion != Prefs.version) {
+            prefsVersion = Prefs.version;
+            HomeData.get(this).settingsChanged();
+            recreate();   // a new language or city: draw everything again
+            return;
+        }
+        if (home != null) home.resume();
+        if (onboarding != null) onboarding.resume(); else showWelcomeIfNeeded();
+        // The TV was just turned on (the screen woke up): the opening again, whether or not the process was rebuilt.
+        boolean woke = App.wakePending && android.os.SystemClock.elapsedRealtime() - App.wokeAt < 8000;
+        if (woke) playSplash();
+        else if (splash != null && splash.waiting()) {
+            // The wake signal can arrive a moment after the activity resumes: give it 1.5 s before giving up on the opening.
+            final SplashView waiting = splash;
+            waiting.postDelayed(() -> { if (waiting.waiting()) waiting.dismiss(); }, 1500);
+        }
+        App.wakePending = false;
+        App.onWake = this::playSplash;
+        App.onSleep = this::prepareSplash;
+        App.onTrim = () -> { if (home != null) home.trimMemory(); };
+    }
+
+    @Override protected void onPause() {
+        resumed = false;
+        Diag.event("onPause");
+        App.onWake = null;
+        App.onSleep = null;
+        // The screen went off (standby): get the opening ready in front of the home screen.
+        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+        if (pm != null && !pm.isInteractive()) prepareSplash();
+        if (home != null) home.pause();
+        super.onPause();
+    }
+
+    /** Home button pressed on the home screen: back to the entry state (focus on the first app, sheet closed). */
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (home != null) home.reset(true);
+    }
+
+    @Override protected void onDestroy() {
+        App.onTrim = null;
+        if (home != null) home.destroy();
+        super.onDestroy();
+    }
+
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (onboarding != null && !(splash != null && splash.active())) {   // the welcome takes the keys (the volume still goes to the system)
+            if (onboarding.onKey(event)) return true;
+            int kc = event.getKeyCode();
+            if (kc != KeyEvent.KEYCODE_VOLUME_UP && kc != KeyEvent.KEYCODE_VOLUME_DOWN && kc != KeyEvent.KEYCODE_VOLUME_MUTE) return true;
+        }
+        if (splash != null && splash.active()) {   // any key leaves the opening (and is not passed on)
+            if (event.getAction() == KeyEvent.ACTION_DOWN) splash.skip();
+            return true;
+        }
+        if (RemoteKeys.onKey(this, event)) return true;
+        if (home != null && home.onKey(event)) return true;
+        return super.dispatchKeyEvent(event);
+    }
+
+}

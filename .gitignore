@@ -1,0 +1,5 @@
+config.properties
+*.keystore
+*.keystore.pass
+*.apk
+out/
