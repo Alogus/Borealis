@@ -163,6 +163,17 @@ final class Prefs {
     static boolean coin(int i) { return sp().getBoolean("coin" + i, true); }
     static void setCoin(int i, boolean on) { put("coin" + i, on); }
 
+    // Update check (bookkeeping does not bump `version`: it must not redraw or restart the screens).
+    static boolean updateAuto() { return sp().getBoolean("updateAuto", true); }
+    static void setUpdateAuto(boolean on) { put("updateAuto", on); }
+    static String updateFound() { return sp().getString("updateFound", ""); }
+    static void setUpdateFound(String v) { sp().edit().putString("updateFound", v == null ? "" : v).apply(); }
+    static long updateAt() { return sp().getLong("updateAt", 0); }
+    static void setUpdateAt(long t) { sp().edit().putLong("updateAt", t).apply(); }
+    /** "version:day" of the last time the notice was shown on the home screen (once a day per version). */
+    static String updateShown() { return sp().getString("updateShown", ""); }
+    static void setUpdateShown(String v) { sp().edit().putString("updateShown", v).apply(); }
+
     // MARK: - Shelf
 
     /** Packages on the home shelf, in order; null until the user edits it (then the built-in list applies). */

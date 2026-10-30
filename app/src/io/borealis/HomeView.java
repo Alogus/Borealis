@@ -422,11 +422,27 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         setDrawerItems(drawerList(a));
     }
 
+    /** Once a day (if left on): asks GitHub for a newer version; once a day per version, a notice says how to get it. */
+    private void checkForUpdate() {
+        Update.check(getContext(), false, status -> noticeIfNewer());
+        noticeIfNewer();
+    }
+
+    private void noticeIfNewer() {
+        String newer = Update.newer(getContext());
+        if (newer.isEmpty()) return;
+        String key = newer + ":" + System.currentTimeMillis() / (24L * 3600 * 1000);
+        if (key.equals(Prefs.updateShown())) return;
+        Prefs.setUpdateShown(key);
+        showToast(Update.message(newer));
+    }
+
     // MARK: - Lifecycle (called by HomeActivity)
 
     void resume() {
         final String fromDream = DreamInfo.takeOpenRequest(getContext());   // OK on the screensaver's widget
         if (fromDream != null && !fromDream.isEmpty()) handler.postDelayed(() -> DreamInfo.launch(activity, fromDream), 250);
+        checkForUpdate();
         if (running) return;
         running = true;
         clockMinute = -1;   // the time format may have changed in Settings

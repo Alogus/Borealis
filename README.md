@@ -13,7 +13,7 @@ in your language (Español, English, Português). Designed and developed by **Al
 - No accounts, no ads, no tracking: see [PRIVACY.md](PRIVACY.md).
 
 ## Install (about 10 minutes, one time)
-Download `Borealis.apk` from [Releases](../../releases). Step by step in [INSTALL.md](INSTALL.md). In short: turn on USB debugging on the TV, then from a computer run
+Download `Borealis.apk` from [Releases](../../releases), or on the TV open **Downloader** and type the code **3357424**. Step by step in [INSTALL.md](INSTALL.md). In short: turn on USB debugging on the TV, then from a computer run
 `adb connect <TV-IP>:5555` and `adb install Borealis.apk`, and open Borealis.
 
 You can go back any time: in Borealis's settings choose **Original** and the TV's own home screen returns.
@@ -58,7 +58,7 @@ author. The name, logo, avatars and sound are not covered; see [NOTICE.md](NOTIC
 - Sin cuentas, sin anuncios, sin rastreo: mira [PRIVACY.md](PRIVACY.md).
 
 ## Instalación (unos 10 minutos, una sola vez)
-Descarga `Borealis.apk` desde [Releases](../../releases). Paso a paso en [INSTALL.md](INSTALL.md). En resumen: activa la depuración USB en la TV; desde un computador ejecuta
+Descarga `Borealis.apk` desde [Releases](../../releases), o en la TV abre **Downloader** y escribe el código **3357424**. Paso a paso en [INSTALL.md](INSTALL.md). En resumen: activa la depuración USB en la TV; desde un computador ejecuta
 `adb connect <IP-de-la-TV>:5555` y `adb install Borealis.apk`, y abre Borealis.
 
 Puedes volver atrás cuando quieras: en los ajustes de Borealis elige **Original** y vuelve el inicio de tu TV.

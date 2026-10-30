@@ -9,14 +9,13 @@ You need: your TV (Google TV or Android TV), a computer on the same Wi-Fi, and t
 > Beta: tested so far with the computer method below. / Beta: probado hasta ahora con el método del computador de abajo.
 
 **English.** 1) On the TV, install the free app **Downloader** (by AFTVnews) from the app store. 2) Allow it to install apps:
-Settings → Apps → Security & restrictions → Unknown sources → Downloader on. 3) Open Downloader and type
-`github.com/Alogus/borealis/releases/download/v3.38.0/Borealis.apk` → Go → Install. 4) Turn on developer mode and
+Settings → Apps → Security & restrictions → Unknown sources → Downloader on. 3) Open Downloader and type the code **3357424** → Go → Install. 4) Turn on developer mode and
 *USB debugging* (steps 1–2 below) and open Borealis. If Borealis cannot make itself the home screen on your TV, use
 the computer method once.
 
 **Español.** 1) En la TV instala la app gratuita **Downloader** (de AFTVnews) desde la tienda. 2) Permítele instalar apps:
 Ajustes → Apps → Seguridad y restricciones → Fuentes desconocidas → Downloader activado. 3) Abre Downloader y escribe
-`github.com/Alogus/borealis/releases/download/v3.38.0/Borealis.apk` → Ir → Instalar. 4) Activa el modo desarrollador y la
+el código **3357424** → Ir → Instalar. 4) Activa el modo desarrollador y la
 *Depuración USB* (pasos 1–2 de abajo) y abre Borealis. Si Borealis no logra activarse como inicio en tu TV, usa una vez
 el método del computador.
 

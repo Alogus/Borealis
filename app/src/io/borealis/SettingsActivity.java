@@ -945,7 +945,7 @@ public class SettingsActivity extends Activity {
                         invalidate();
                     } else if (down && screen == GROUP) {
                         int id = groupIds()[focus];
-                        if ((id < 100 && id != WALLPAPER_ROW) || id == ID_SPLASH || id == ID_SOUND) {
+                        if ((id < 100 && id != WALLPAPER_ROW) || id == ID_SPLASH || id == ID_SOUND || id == ID_UPDATE_AUTO) {
                             adjustSetting(id, e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
                             invalidate();
                         }
@@ -1082,7 +1082,7 @@ public class SettingsActivity extends Activity {
                     return ids;
                 }
                 case 3: return sortedByName(0, 1, 3, 4, ID_REMOTE, ID_WELCOME);
-                default: return sortedByName(ID_LAUNCHER, ID_TV);
+                default: return sortedByName(ID_LAUNCHER, ID_TV, ID_UPDATE, ID_UPDATE_AUTO);
             }
         }
 
@@ -1105,6 +1105,8 @@ public class SettingsActivity extends Activity {
                 case ID_TV: return Ui.tr("Ajustes da TV", "TV Settings", "Ajustes de la TV");
                 case ID_REMOTE: return Ui.tr("Botão de ajustes do controle", "Remote's settings button", "Botón de ajustes del control");
                 case ID_WELCOME: return Ui.tr("Repetir as boas-vindas", "Replay the welcome", "Repetir bienvenida");
+                case ID_UPDATE: return Ui.tr("Atualizações", "Updates", "Actualizaciones");
+                case ID_UPDATE_AUTO: return Ui.tr("Buscar atualizações sozinho", "Check for updates by itself", "Buscar actualizaciones solo");
                 default: return settingLabels()[id];
             }
         }
@@ -1119,6 +1121,12 @@ public class SettingsActivity extends Activity {
                 case ID_SOUND: return onOff(Prefs.startupSound());
                 case ID_REMOTE: return onOff(remoteButtonOn());
                 case ID_SHELF: case ID_TV: case ID_WELCOME: return "";
+                case ID_UPDATE: {
+                    String newer = Update.newer(getContext());
+                    return newer.isEmpty() ? Ui.tr("Em dia · ", "Up to date · ", "Al día · ") + Update.installed(getContext())
+                            : Ui.tr("Nova versão ", "New version ", "Nueva versión ") + newer;
+                }
+                case ID_UPDATE_AUTO: return onOff(Prefs.updateAuto());
                 case ID_LAUNCHER: return freeActive() ? "Borealis" : "Original";
                 default: return settingValues()[id];
             }
@@ -1394,7 +1402,7 @@ public class SettingsActivity extends Activity {
         /** Home Settings: language, temperature, theme, weather, quotes, then one row per coin. */
         private static final int COIN_ROWS = 10, WALLPAPER_ROW = 9;
         /** Rows of a group that are not in the old Home Settings list: screensaver, shelf, launcher, TV settings. */
-        private static final int ID_SAVER = 100, ID_SHELF = 101, ID_LAUNCHER = 102, ID_TV = 103, ID_SPLASH = 104, ID_WELCOME = 105, ID_SOUND = 106, ID_REMOTE = 107;
+        private static final int ID_SAVER = 100, ID_SHELF = 101, ID_LAUNCHER = 102, ID_TV = 103, ID_SPLASH = 104, ID_WELCOME = 105, ID_SOUND = 106, ID_REMOTE = 107, ID_UPDATE = 108, ID_UPDATE_AUTO = 109;
         private static final float CARD_H = 130, CARD_GAP = 14;
 
         private boolean dollar() {
@@ -1559,6 +1567,7 @@ public class SettingsActivity extends Activity {
                 case 8: Prefs.setQuotes(!Prefs.quotes()); break;
                 case WALLPAPER_ROW: openWallpapers(false, false); return;
                 case ID_SPLASH: Prefs.setSplash(!Prefs.splash()); return;
+                case ID_UPDATE_AUTO: Prefs.setUpdateAuto(!Prefs.updateAuto()); return;
                 case ID_REMOTE: askRemoteButton(); return;
                 case ID_SOUND: Prefs.setStartupSound(!Prefs.startupSound()); if (Prefs.startupSound()) StartupSound.play(getContext()); return;
                 default:
@@ -2945,6 +2954,26 @@ public class SettingsActivity extends Activity {
             }
         }
 
+        /** "Updates": asks GitHub now and says what it found. */
+        private void checkUpdateNow() {
+            final Context c = getContext();
+            Update.check(c, true, status -> {
+                String text;
+                if (status == Update.FAILED) {
+                    text = Ui.tr("Não foi possível verificar agora. Veja se a TV tem internet e tente de novo.",
+                            "Could not check right now. Make sure the TV is online and try again.",
+                            "No se pudo comprobar ahora. Revisa que la TV tenga internet e inténtalo de nuevo.");
+                } else if (status == Update.FOUND) {
+                    text = Update.message(Update.newer(c));
+                } else {
+                    text = Ui.tr("Você está em dia: versão ", "You are up to date: version ", "Estás al día: versión ") + Update.installed(c) + ".";
+                }
+                new android.app.AlertDialog.Builder(c).setTitle(Ui.tr("Atualizações", "Updates", "Actualizaciones")).setMessage(text)
+                        .setPositiveButton("OK", null).show();
+                invalidate();
+            });
+        }
+
         private void activate() {
             Context c = getContext();
             blink();
@@ -3031,6 +3060,8 @@ public class SettingsActivity extends Activity {
                 } else if (id == ID_WELCOME) {
                     OnboardingView.repeat(c);
                     activity.goHomeSoftly();
+                } else if (id == ID_UPDATE) {
+                    checkUpdateNow();
                 } else if (id == ID_TV) {
                     activity.startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
                 } else if (id == WALLPAPER_ROW) {
