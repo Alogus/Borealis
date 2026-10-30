@@ -3,3 +3,5 @@ config.properties
 *.keystore.pass
 *.apk
 out/
+*.idsig
+*.sha256
