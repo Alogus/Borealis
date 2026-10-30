@@ -2954,23 +2954,63 @@ public class SettingsActivity extends Activity {
             }
         }
 
-        /** "Updates": asks GitHub now and says what it found. */
+        /** "Updates": with a new version waiting, offers to install it; otherwise asks GitHub now and says what it found. */
         private void checkUpdateNow() {
             final Context c = getContext();
+            if (!Update.newer(c).isEmpty()) {
+                offerInstall();
+                return;
+            }
             Update.check(c, true, status -> {
-                String text;
-                if (status == Update.FAILED) {
-                    text = Ui.tr("Não foi possível verificar agora. Veja se a TV tem internet e tente de novo.",
-                            "Could not check right now. Make sure the TV is online and try again.",
-                            "No se pudo comprobar ahora. Revisa que la TV tenga internet e inténtalo de nuevo.");
-                } else if (status == Update.FOUND) {
-                    text = Update.message(Update.newer(c));
-                } else {
-                    text = Ui.tr("Você está em dia: versão ", "You are up to date: version ", "Estás al día: versión ") + Update.installed(c) + ".";
+                if (status == Update.FOUND) {
+                    offerInstall();
+                    invalidate();
+                    return;
                 }
-                new android.app.AlertDialog.Builder(c).setTitle(Ui.tr("Atualizações", "Updates", "Actualizaciones")).setMessage(text)
-                        .setPositiveButton("OK", null).show();
+                String text = status == Update.FAILED
+                        ? Ui.tr("Não foi possível verificar agora. Veja se a TV tem internet e tente de novo.",
+                                "Could not check right now. Make sure the TV is online and try again.",
+                                "No se pudo comprobar ahora. Revisa que la TV tenga internet e inténtalo de nuevo.")
+                        : Ui.tr("Você está em dia: versão ", "You are up to date: version ", "Estás al día: versión ") + Update.installed(c) + ".";
+                tellUpdate(text);
                 invalidate();
+            });
+        }
+
+        private void tellUpdate(String text) {
+            new android.app.AlertDialog.Builder(getContext()).setTitle(Ui.tr("Atualizações", "Updates", "Actualizaciones")).setMessage(text)
+                    .setPositiveButton("OK", null).show();
+        }
+
+        private void offerInstall() {
+            final Context c = getContext();
+            new android.app.AlertDialog.Builder(c).setTitle(Ui.tr("Atualizações", "Updates", "Actualizaciones"))
+                    .setMessage(Ui.tr("Nova versão disponível: " + Update.newer(c) + ". Instalar agora? São uns 7 MB; o Android vai pedir uma última confirmação.",
+                            "New version available: " + Update.newer(c) + ". Install it now? It is about 7 MB; Android will ask one last confirmation.",
+                            "Nueva versión disponible: " + Update.newer(c) + ". ¿Instalarla ahora? Son unos 7 MB; Android te pedirá una última confirmación."))
+                    .setPositiveButton(Ui.tr("Instalar", "Install", "Instalar"), (d, w) -> startInstall())
+                    .setNegativeButton(Ui.tr("Agora não", "Not now", "Ahora no"), null).show();
+        }
+
+        private void startInstall() {
+            final Context c = getContext();
+            if (!Update.canInstall(c)) {   // once: Android's own switch for "install apps from this source"
+                new android.app.AlertDialog.Builder(c).setTitle(Ui.tr("Atualizações", "Updates", "Actualizaciones"))
+                        .setMessage(Ui.tr("O Android precisa da sua permissão, uma só vez, para o Borealis instalar suas atualizações. Na próxima tela ative \"Permitir desta fonte\" e volte. Depois escolha Atualizações de novo.",
+                                "Android needs your permission, just once, for Borealis to install its updates. On the next screen turn on \"Allow from this source\" and come back. Then choose Updates again.",
+                                "Android necesita tu permiso, una sola vez, para que Borealis instale sus actualizaciones. En la siguiente pantalla activa \"Permitir de esta fuente\" y vuelve. Luego elige Actualizaciones otra vez."))
+                        .setPositiveButton("OK", (d, w) -> Update.askPermission(c)).show();
+                return;
+            }
+            final android.app.AlertDialog wait = new android.app.AlertDialog.Builder(c).setTitle(Ui.tr("Atualizações", "Updates", "Actualizaciones"))
+                    .setMessage(Ui.tr("Baixando a atualização…", "Downloading the update…", "Descargando la actualización…")).setCancelable(false).show();
+            Update.install(c, (ok, error) -> {
+                wait.dismiss();
+                if (!ok) {
+                    tellUpdate(Ui.tr("Não foi possível instalar agora (" + error + "). Tente de novo mais tarde.",
+                            "Could not install right now (" + error + "). Try again later.",
+                            "No se pudo instalar ahora (" + error + "). Inténtalo de nuevo más tarde."));
+                }
             });
         }
 

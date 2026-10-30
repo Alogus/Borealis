@@ -168,6 +168,9 @@ final class Prefs {
     static void setUpdateAuto(boolean on) { put("updateAuto", on); }
     static String updateFound() { return sp().getString("updateFound", ""); }
     static void setUpdateFound(String v) { sp().edit().putString("updateFound", v == null ? "" : v).apply(); }
+    static String updateApkUrl() { return sp().getString("updateApk", ""); }
+    static String updateShaUrl() { return sp().getString("updateSha", ""); }
+    static void setUpdateApk(String apk, String sha) { sp().edit().putString("updateApk", apk).putString("updateSha", sha).apply(); }
     static long updateAt() { return sp().getLong("updateAt", 0); }
     static void setUpdateAt(long t) { sp().edit().putLong("updateAt", t).apply(); }
     /** "version:day" of the last time the notice was shown on the home screen (once a day per version). */

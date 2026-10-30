@@ -22,7 +22,7 @@ information to the author or to anyone who runs Borealis.
 - Open-Meteo (open-meteo.com): the weather and sunset, using the coordinates in the settings (or your time zone's main city).
 - Binance: 24-hour prices of the coins you choose, only if you turn that on.
 - The cover picture of the song or show, from the address that the playing app gives.
-- GitHub (api.github.com): once a day, to ask which Borealis version is the latest, so it can tell you when there is an update. It only reads; it sends nothing about you. You can turn it off in Borealis's settings (System → Check for updates by itself).
+- GitHub (api.github.com): once a day, to ask which Borealis version is the latest, so it can tell you when there is an update. It only reads; it sends nothing about you. If you choose to install an update, it downloads the new file from GitHub too. You can turn the check off in Borealis's settings (System → Check for updates by itself).
 These services see your TV's internet address, as any website does, and the title or place they are asked about.
 
 **Control**: you can turn off notification access, the location permission, the weather, the prices and the update check at any time
@@ -50,7 +50,7 @@ autor ni a nadie.
 - Open-Meteo (open-meteo.com): el clima y el atardecer, con las coordenadas de los ajustes (o la ciudad principal de tu zona horaria).
 - Binance: precios de 24 horas de las monedas que elijas, solo si lo activas.
 - La portada de la canción o serie, desde la dirección que da la app que reproduce.
-- GitHub (api.github.com): una vez al día, para preguntar cuál es la última versión de Borealis y avisarte si hay una actualización. Solo lee; no envía nada sobre ti. Puedes apagarlo en los ajustes de Borealis (Sistema → Buscar actualizaciones solo).
+- GitHub (api.github.com): una vez al día, para preguntar cuál es la última versión de Borealis y avisarte si hay una actualización. Solo lee; no envía nada sobre ti. Si decides instalar una actualización, también descarga el archivo nuevo desde GitHub. Puedes apagar la búsqueda en los ajustes de Borealis (Sistema → Buscar actualizaciones solo).
 Esos servicios ven la dirección de internet de tu TV, como cualquier página web, y el título o lugar que se les consulta.
 
 **Control**: puedes quitar el acceso a notificaciones, el permiso de ubicación, el clima, los precios y la búsqueda de actualizaciones cuando quieras,
