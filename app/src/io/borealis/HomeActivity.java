@@ -21,6 +21,7 @@ public class HomeActivity extends Activity {
     private HomeView home;
     private SplashView splash;
     private OnboardingView onboarding;
+    private NoticeView notice;
     private FrameLayout root;
     static final String EXTRA_UPDATED = "io.borealis.UPDATED";
     private int prefsVersion = Prefs.version;   // settings changed while we were away: start over
@@ -47,6 +48,7 @@ public class HomeActivity extends Activity {
         home = new HomeView(this);
         root = new FrameLayout(this);
         root.addView(home, new FrameLayout.LayoutParams(-1, -1));
+        fakeUpdate(getIntent());
         showWelcomeIfNeeded();   // under the opening, so it appears once the opening is over
         boolean updated = getIntent() != null && getIntent().getBooleanExtra(EXTRA_UPDATED, false);
         if (updated) getSharedPreferences("splash", MODE_PRIVATE).edit().putLong("at", android.os.SystemClock.elapsedRealtime()).apply();
@@ -68,6 +70,7 @@ public class HomeActivity extends Activity {
             }
             if (root != null) { root.removeView(onboarding); root.removeView(backdrop); }
             onboarding = null;
+            markNoticeSeen();   // the welcome already told the news of this version
             if (home != null) home.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
             if (home != null) home.resume();
         });
@@ -75,6 +78,49 @@ public class HomeActivity extends Activity {
         if (home != null) home.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         root.addView(mine, new FrameLayout.LayoutParams(-1, -1));
         if (splash != null) splash.bringToFront();
+    }
+
+    /** For testing the bell: `adb shell am start -n io.borealis/.HomeActivity --es fakeupdate 9.9.9` ("" clears it). */
+    private void fakeUpdate(Intent intent) {
+        if (intent == null || !intent.hasExtra("fakeupdate")) return;
+        String v = intent.getStringExtra("fakeupdate");
+        Prefs.setUpdateFound(v == null ? "" : v);
+        Prefs.setUpdateApk("", "");
+        Prefs.setUpdateAt(System.currentTimeMillis());   // so the next check does not undo it for a day
+    }
+
+    private void markNoticeSeen() {
+        getSharedPreferences("notice", MODE_PRIVATE).edit().putString("seen", Update.installed(this)).apply();
+    }
+
+    /** A modal over the home screen (see NoticeView). Does nothing while another one or the welcome is up. */
+    void showNotice(boolean picture, String title, String body, String yes, Runnable onYes, String no, Runnable onNo) {
+        if (root == null || notice != null || onboarding != null) return;
+        final NoticeView[] mine = new NoticeView[1];
+        mine[0] = new NoticeView(this, picture, title, body, yes, onYes, no, onNo, () -> {
+            if (root != null && mine[0] != null) root.removeView(mine[0]);
+            if (notice == mine[0]) notice = null;
+            if (home != null) home.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+        });
+        notice = mine[0];
+        if (home != null) home.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        root.addView(notice, new FrameLayout.LayoutParams(-1, -1));
+        if (splash != null) splash.bringToFront();
+    }
+
+    /** What's new in this version: once per version, after the welcome (people who just did the welcome have seen it). */
+    private void showWhatsNewIfNeeded() {
+        if (root == null || notice != null || onboarding != null || OnboardingView.pending(this)) return;
+        if (splash != null && (splash.active() || splash.waiting())) return;
+        String now = Update.installed(this);
+        if (now.isEmpty() || now.equals(getSharedPreferences("notice", MODE_PRIVATE).getString("seen", ""))) return;
+        showNotice(true,
+                Ui.tr("Nova atualização · Versão ", "New update · Version ", "Nueva actualización · Versión ") + now,
+                Ui.tr("Personalize o seu estante de apps. ", "Make your app shelf yours. ", "Personaliza tu estante de apps. ")
+                        + Ui.tr("Segure OK sobre um app do estante para movê-lo, removê-lo ou ocultá-lo. Os apps ocultos ficam no fim de Todos os apps, e de lá você pode mostrá-los de novo.",
+                        "Hold OK on a shelf app to move it, remove it or hide it. Hidden apps wait at the end of All apps, and you can bring them back from there.",
+                        "Mantén OK sobre una app del estante para moverla, quitarla u ocultarla. Las apps ocultas quedan al final de Todas las apps y desde ahí puedes volver a mostrarlas."),
+                Ui.tr("Entendi", "Got it", "Entendido"), this::markNoticeSeen, null, null);
     }
 
     private SplashView newSplash(boolean waiting) { return newSplash(waiting, false); }
@@ -132,7 +178,7 @@ public class HomeActivity extends Activity {
             return;
         }
         if (home != null) home.resume();
-        if (onboarding != null) onboarding.resume(); else showWelcomeIfNeeded();
+        if (onboarding != null) onboarding.resume(); else { showWelcomeIfNeeded(); showWhatsNewIfNeeded(); }
         // The TV was just turned on (the screen woke up): the opening again, whether or not the process was rebuilt.
         boolean woke = App.wakePending && android.os.SystemClock.elapsedRealtime() - App.wokeAt < 8000;
         if (woke) playSplash();
@@ -162,6 +208,7 @@ public class HomeActivity extends Activity {
     /** Home button pressed on the home screen: back to the entry state (focus on the first app, sheet closed). */
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        fakeUpdate(intent);
         if (home != null) home.reset(true);
     }
 
@@ -190,6 +237,10 @@ public class HomeActivity extends Activity {
         if (splash != null && splash.active()) {   // any key leaves the opening (and is not passed on)
             if (event.getAction() == KeyEvent.ACTION_DOWN) splash.skip();
             return true;
+        }
+        if (notice != null) {   // a modal takes the keys (the volume still goes to the system)
+            if (notice.onKey(event)) return true;
+            return super.dispatchKeyEvent(event);
         }
         if (RemoteKeys.onKey(this, event)) return true;
         if (home != null && home.onKey(event)) return true;

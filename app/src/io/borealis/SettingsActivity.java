@@ -98,6 +98,10 @@ public class SettingsActivity extends Activity {
             getIntent().removeExtra("shelf");
             view.showShelfEditor();
         }
+        if (getIntent().getBooleanExtra("hidden", false)) {   // from the card "Hidden apps" at the end of All Apps
+            getIntent().removeExtra("hidden");
+            view.showHiddenApps();
+        }
         if (preview == null && getIntent().getBooleanExtra("screensaver", false)) {
             getIntent().removeExtra("screensaver");
             view.pause();
@@ -160,7 +164,7 @@ public class SettingsActivity extends Activity {
     }
 
     static final class SettingsView extends View implements Choreographer.FrameCallback {
-        private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5, WALLPAPERS = 6, GROUP = 7, AVATARS = 8;
+        private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5, WALLPAPERS = 6, GROUP = 7, AVATARS = 8, HIDDEN_APPS = 9;
         private static final float LIST_ROW_H_BASE = 68, LIST_ROW_GAP_BASE = 6;
         /** The long Home Settings list (13 rows with the dollar) gets slimmer rows so it still fits above the bottom edge. */
         private boolean tight() {
@@ -318,6 +322,7 @@ public class SettingsActivity extends Activity {
                 case PICKER: return keyRawLabel(Math.max(0, Math.min(Prefs.KEYS.length - 1, pickFor - 1)));
                 case SHELF_EDIT: return groupLabel(ID_SHELF);
                 case AVATARS: return Ui.tr("Escolha seu avatar", "Choose your avatar", "Elige tu avatar");
+                case HIDDEN_APPS: return Ui.tr("Apps ocultos", "Hidden apps", "Apps ocultas");
                 case WALLPAPERS: return wpSaver ? groupLabel(ID_SAVER) : settingLabels()[WALLPAPER_ROW];
                 default: return "Borealis";
             }
@@ -429,6 +434,9 @@ public class SettingsActivity extends Activity {
                     return app[1] + ", " + (place >= 0 ? Ui.tr("na prateleira, posição ", "on the shelf, place ") + (place + 1)
                             : Ui.tr("fora da prateleira", "not on the shelf"));
                 }
+                case HIDDEN_APPS:
+                    return row >= 0 && row < hidItems.size() ? hidItems.get(row).label + ". "
+                            + Ui.tr("Aperte OK para mostrar de novo.", "Press OK to show it again.", "Presiona OK para mostrarla de nuevo.") : "";
                 default:
                     return "";
             }
@@ -436,6 +444,10 @@ public class SettingsActivity extends Activity {
 
         private RectF rowBox(int row) {
             float top, height;
+            if (screen == HIDDEN_APPS && !hidItems.isEmpty()) {
+                hidCell(Math.max(0, Math.min(row, hidItems.size() - 1)), focusBox);
+                return focusBox;
+            }
             if (screen == AVATARS) {
                 avatarCell(Math.max(0, Math.min(row, Avatars.IDS.length - 1)), focusBox);
                 return focusBox;
@@ -561,6 +573,7 @@ public class SettingsActivity extends Activity {
                 case PICKER: return Math.min(PICK_VISIBLE, pickLabels.size());
                 case SHELF_EDIT: return Math.min(PICK_VISIBLE, shelfRows.size());
                 case AVATARS: return Avatars.IDS.length;
+                case HIDDEN_APPS: return hidItems.size();
                 case WALLPAPERS: return wpFiles().length;
                 default: return Prefs.KEYS.length;
             }
@@ -588,6 +601,12 @@ public class SettingsActivity extends Activity {
             wpIn.step(dt);
             profilePop.step(dt);
             blinkSpring.step(dt);
+            if (screen == HIDDEN_APPS) {
+                for (int i = 0; i < hidPop.length; i++) {
+                    hidPop[i].target = focus == i ? 1 : 0;
+                    hidPop[i].step(dt);
+                }
+            }
             if (screen == WALLPAPERS) {
                 if (wpHold) {
                     if (wpSnap != null && !wpReady() && SystemClock.uptimeMillis() - wpHoldAt < 500) {
@@ -611,6 +630,12 @@ public class SettingsActivity extends Activity {
                 return;
             }
             if (wpSnap != null) dropSnapshot();
+            if (screen == HIDDEN_APPS) {   // like the wallpaper picker: its blurred backdrop, a centered title, the Back button
+                drawBackground(c);
+                drawHiddenApps(c);
+                drawBackButton(c);
+                return;
+            }
             long up = SystemClock.uptimeMillis();
             float seconds = (up - startedAt) / 1000f;
             if (up - lastSky >= 100) {
@@ -936,6 +961,7 @@ public class SettingsActivity extends Activity {
             if (down) introId = -1;
             if (screen == WALLPAPERS && e.getKeyCode() != KeyEvent.KEYCODE_BACK) return wallpaperKey(e, down);
             if (screen == AVATARS && e.getKeyCode() != KeyEvent.KEYCODE_BACK) return avatarKey(e, down);
+            if (screen == HIDDEN_APPS && e.getKeyCode() != KeyEvent.KEYCODE_BACK) return hiddenKey(e, down);
             switch (e.getKeyCode()) {
                 case KeyEvent.KEYCODE_DPAD_UP:
                     if (down && focus == -1) focus = rowCount() - 1;   // the profile: up goes round to the last card
@@ -1021,6 +1047,14 @@ public class SettingsActivity extends Activity {
                 focus = -1;   // back on the profile
             } else if (screen == WALLPAPERS) {
                 closeWallpapers();
+            } else if (screen == HIDDEN_APPS) {
+                if (hidFromHome) {   // opened from the card in All Apps: back out to the home screen
+                    ((android.app.Activity) getContext()).finish();
+                    return;
+                }
+                group = 2;
+                screen = GROUP;
+                focus = groupIndexOf(2, ID_HIDDEN);
             } else if (screen == GROUP) {
                 focus = groupPos(group);
                 screen = MAIN;
@@ -1094,7 +1128,7 @@ public class SettingsActivity extends Activity {
             switch (group) {
                 case 1: return sortedByName(WALLPAPER_ROW, ID_SAVER, ID_SPLASH, ID_SOUND);
                 case 2: {
-                    int[] top = sortedByName(5, 6, ID_SHELF, 7, 8);
+                    int[] top = sortedByName(5, 6, ID_SHELF, ID_HIDDEN, 7, 8);
                     int coins = Math.max(0, settingLabels().length - COIN_ROWS);
                     int[] coinIds = new int[coins];
                     for (int i = 0; i < coins; i++) coinIds[i] = COIN_ROWS + i;
@@ -1125,6 +1159,7 @@ public class SettingsActivity extends Activity {
             switch (id) {
                 case ID_SAVER: return Ui.tr("Protetor de tela", "Screensaver", "Protector de pantalla");
                 case ID_SHELF: return Ui.tr("Prateleira", "Shelf", "Estante de apps");
+                case ID_HIDDEN: return Ui.tr("Apps ocultos", "Hidden apps", "Apps ocultas");
                 case ID_LAUNCHER: return "Launcher";
                 case ID_SPLASH: return Ui.tr("Logo do launcher ao ligar a TV", "Launcher logo when the TV turns on", "Logo del launcher al encender la TV");
                 case ID_SOUND: return Ui.tr("Som de abertura", "Startup sound", "Sonido de inicio");
@@ -1147,6 +1182,7 @@ public class SettingsActivity extends Activity {
                 case ID_SOUND: return onOff(Prefs.startupSound());
                 case ID_REMOTE: return onOff(remoteButtonOn());
                 case ID_SHELF: case ID_TV: case ID_WELCOME: return "";
+                case ID_HIDDEN: { int n = Prefs.hiddenApps().size(); return n == 0 ? "" : String.valueOf(n); }
                 case ID_UPDATE: {
                     String newer = Update.newer(getContext());
                     return newer.isEmpty() ? Ui.tr("Em dia · ", "Up to date · ", "Al día · ") + Update.installed(getContext())
@@ -1194,7 +1230,7 @@ public class SettingsActivity extends Activity {
 
         /** Rows that open another screen (a chevron at the right) instead of changing a value in place. */
         private static boolean opensScreen(int id) {
-            return id == WALLPAPER_ROW || id == ID_SAVER || id == ID_SHELF || id == ID_LAUNCHER || id == ID_TV || id == ID_WELCOME;
+            return id == WALLPAPER_ROW || id == ID_SAVER || id == ID_SHELF || id == ID_HIDDEN || id == ID_LAUNCHER || id == ID_TV || id == ID_WELCOME;
         }
 
         private Paint profileText;
@@ -1428,7 +1464,7 @@ public class SettingsActivity extends Activity {
         /** Home Settings: language, temperature, theme, weather, quotes, then one row per coin. */
         private static final int COIN_ROWS = 10, WALLPAPER_ROW = 9;
         /** Rows of a group that are not in the old Home Settings list: screensaver, shelf, launcher, TV settings. */
-        private static final int ID_SAVER = 100, ID_SHELF = 101, ID_LAUNCHER = 102, ID_TV = 103, ID_SPLASH = 104, ID_WELCOME = 105, ID_SOUND = 106, ID_REMOTE = 107, ID_UPDATE = 108, ID_UPDATE_AUTO = 109;
+        private static final int ID_SAVER = 100, ID_SHELF = 101, ID_LAUNCHER = 102, ID_TV = 103, ID_SPLASH = 104, ID_WELCOME = 105, ID_SOUND = 106, ID_REMOTE = 107, ID_UPDATE = 108, ID_UPDATE_AUTO = 109, ID_HIDDEN = 110;
         private static final float CARD_H = 130, CARD_GAP = 14;
 
         private boolean dollar() {
@@ -1626,6 +1662,198 @@ public class SettingsActivity extends Activity {
                             "This TV has no notification access screen. From a computer connected to the TV with adb, run:\n\nadb shell cmd notification allow_listener io.borealis/io.borealis.MediaWatcher",
                             "Este TV no tiene la pantalla de acceso a notificaciones. Desde un computador conectado al TV con adb, ejecuta:\n\nadb shell cmd notification allow_listener io.borealis/io.borealis.MediaWatcher"))
                     .setPositiveButton("OK", null)
+                    .show();
+        }
+
+        // MARK: - Hidden apps screen
+
+        private static final int HID_COLS = 5;
+        private final List<HomeApps.Item> hidItems = new ArrayList<>();
+        private Spring[] hidPop = new Spring[0];
+        private boolean hidFromHome;
+        private Paint hidLabel;
+        private float hidLabelK;
+
+        void showHiddenApps() {
+            openHiddenApps(true);
+        }
+
+        private void openHiddenApps(boolean fromHome) {
+            hidFromHome = fromHome;
+            hidItems.clear();
+            for (String pkg : Prefs.hiddenApps()) {
+                HomeApps.Item it = HomeApps.item(getContext(), pkg);
+                if (it != null) hidItems.add(it);
+            }
+            screen = HIDDEN_APPS;
+            focus = hidItems.isEmpty() ? -2 : 0;
+            hidSprings();
+            invalidate();
+            spoken.focusMoved();
+        }
+
+        private void hidSprings() {
+            hidPop = new Spring[hidItems.size()];
+            for (int i = 0; i < hidPop.length; i++) {
+                hidPop[i] = new Spring(0.28f, 0.85f, 0);
+                if (i == focus) hidPop[i].snap(1);
+            }
+        }
+
+        /** Card i: rows of up to five, centered, the rows scrolling when the focus goes down (the third row on). */
+        private void hidCell(int i, RectF out) {
+            int n = hidItems.size();
+            int row = i / HID_COLS, col = i % HID_COLS, inRow = Math.min(HID_COLS, n - row * HID_COLS);
+            float cw = 300, ch = 169, gap = 32, pitch = 303;
+            float rowW = inRow * cw + (inRow - 1) * gap;
+            float x = (1920 - rowW) / 2f + col * (cw + gap);
+            int focusRow = focus >= 0 ? focus / HID_COLS : 0;
+            float y = 250 + row * pitch - Math.max(0, focusRow - 1) * pitch;
+            out.set(x * k, y * k, (x + cw) * k, (y + ch) * k);
+        }
+
+        private boolean hiddenKey(KeyEvent e, boolean down) {
+            int n = hidItems.size();
+            switch (e.getKeyCode()) {
+                case KeyEvent.KEYCODE_DPAD_LEFT:
+                    if (down && focus > 0 && focus % HID_COLS > 0) focus--;
+                    break;
+                case KeyEvent.KEYCODE_DPAD_RIGHT:
+                    if (down && focus >= 0 && focus % HID_COLS < HID_COLS - 1 && focus + 1 < n) focus++;
+                    break;
+                case KeyEvent.KEYCODE_DPAD_UP:
+                    if (down && focus >= HID_COLS) focus -= HID_COLS;
+                    else if (down && focus >= 0) focus = -2;   // the first row: up to the Back button
+                    break;
+                case KeyEvent.KEYCODE_DPAD_DOWN:
+                    if (down && focus < 0) focus = n > 0 ? 0 : -2;
+                    else if (down) {
+                        if (focus + HID_COLS < n) focus += HID_COLS;
+                        else if (focus / HID_COLS < (n - 1) / HID_COLS) focus = n - 1;
+                    }
+                    break;
+                case KeyEvent.KEYCODE_DPAD_CENTER:
+                case KeyEvent.KEYCODE_ENTER:
+                case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                    if (down) {
+                        if (e.getRepeatCount() == 0) okDown = true;
+                    } else {
+                        if (okDown && !e.isCanceled() && spoken.keyClick()) activate();
+                        okDown = false;
+                    }
+                    return true;
+                default:
+                    return false;
+            }
+            invalidate();
+            spoken.focusMoved();
+            return true;
+        }
+
+        /** OK on a card: the app is shown again (it goes back to All Apps) and the card leaves this list. */
+        private void hiddenRestore() {
+            if (focus < 0 || focus >= hidItems.size()) return;
+            HomeApps.Item it = hidItems.remove(focus);
+            List<String> now = Prefs.hiddenApps();
+            now.remove(it.pkg);
+            Prefs.setHiddenApps(now);
+            if (hidItems.isEmpty()) focus = -2;
+            else focus = Math.min(focus, hidItems.size() - 1);
+            hidSprings();
+            invalidate();
+            spoken.focusMoved();
+        }
+
+        private void drawHiddenApps(Canvas c) {
+            wpPaints();
+            if (hidLabel == null || hidLabelK != k) {
+                hidLabelK = k;
+                hidLabel = Ui.text(Ui.medium, 24 * k, 0xE6FFFFFF);
+                hidLabel.setTextAlign(Paint.Align.CENTER);
+            }
+            c.drawText(Ui.tr("Apps ocultos", "Hidden apps", "Apps ocultas"), w / 2f, 78 * k, wpTitle);
+            c.drawText(hidItems.isEmpty()
+                            ? Ui.tr("Nenhum app oculto. Para ocultar um: segure OK sobre ele em Todos os apps.",
+                                    "No hidden apps. To hide one: hold OK on it in All Apps.",
+                                    "No hay apps ocultas. Para ocultar una: mantén OK sobre ella en Todas las apps.")
+                            : Ui.tr("Escolha o app que quer mostrar de novo.", "Pick the app you want to show again.", "Elige la app que quieres volver a mostrar."),
+                    w / 2f, 122 * k, wpDesc);
+            RectF cell = new RectF();
+            for (int i = 0; i < hidItems.size(); i++) {
+                hidCell(i, cell);
+                if (cell.bottom < 170 * k || cell.top > h) continue;   // scrolled out
+                float f = Ui.clamp(i < hidPop.length ? hidPop[i].value : 0);
+                float s = 1 + 0.06f * f, cx = cell.centerX(), cy = cell.centerY();
+                float bw = cell.width() * s, bh = cell.height() * s, rad = 18 * k * s;
+                tmp.set(cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2);
+                if (f > 0.01f) {
+                    tmp.offset(0, 10 * k * f);
+                    shadow.setColor(Ui.alpha(0xFF000000, 0.45f * f));
+                    c.drawRoundRect(tmp, rad, rad, shadow);
+                    tmp.offset(0, -10 * k * f);
+                }
+                HomeApps.Item it = hidItems.get(i);
+                int save = c.save();
+                android.graphics.Path clip = new android.graphics.Path();
+                clip.addRoundRect(tmp, rad, rad, android.graphics.Path.Direction.CW);
+                c.clipPath(clip);
+                if (it.tile != null) c.drawBitmap(it.tile, null, tmp, wpImg);
+                if (f < 0.99f) {   // not in focus: a little dimmer
+                    wpFill.setStyle(Paint.Style.FILL);
+                    wpFill.setShader(null);
+                    wpFill.setColor(Ui.alpha(0xFF000000, 0.3f * (1 - f)));
+                    c.drawRect(tmp, wpFill);
+                }
+                c.restoreToCount(save);
+                if (f > 0.01f) {
+                    float ring = 4.5f * k, half = ring / 2;
+                    tmp2.set(tmp.left + half, tmp.top + half, tmp.right - half, tmp.bottom - half);
+                    ringPaint.setStyle(Paint.Style.STROKE);
+                    ringPaint.setStrokeWidth(ring);
+                    ringPaint.setShader(new LinearGradient(tmp.left, tmp.top, tmp.right, tmp.bottom, new int[] {LILY, PEACH, MELON}, null, Shader.TileMode.CLAMP));
+                    ringPaint.setAlpha(Math.round(255 * Ui.clamp(f * 2)));
+                    c.drawRoundRect(tmp2, rad - half, rad - half, ringPaint);
+                    ringPaint.setShader(null);
+                }
+                c.drawText(it.label, cx, cell.bottom + 40 * k, hidLabel);
+                if (i == focus) {   // the action, under the card in focus
+                    wpButton(c, cx, cell.bottom + 60 * k, 280 * k, 56 * k,
+                            Ui.tr("Mostrar de novo", "Show again", "Volver a mostrar"), f);
+                }
+            }
+        }
+
+        /** Hidden apps: the list; picking one shows it again (in All Apps). */
+        private void askHiddenApps() {
+            final List<String> hidden = Prefs.hiddenApps();
+            if (hidden.isEmpty()) {
+                new android.app.AlertDialog.Builder(getContext())
+                        .setTitle(Ui.tr("Apps ocultos", "Hidden apps", "Apps ocultas"))
+                        .setMessage(Ui.tr("Nenhum app oculto. Para ocultar um: segure OK sobre ele na prateleira.",
+                                "No hidden apps. To hide one: hold OK on it in the shelf.",
+                                "No hay apps ocultas. Para ocultar una: mantén OK sobre ella en el estante."))
+                        .setPositiveButton("OK", null)
+                        .show();
+                return;
+            }
+            android.content.pm.PackageManager pm = getContext().getPackageManager();
+            final String[] labels = new String[hidden.size()];
+            for (int i = 0; i < labels.length; i++) {
+                try {
+                    labels[i] = String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(hidden.get(i), 0)));
+                } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+                    labels[i] = hidden.get(i);
+                }
+            }
+            new android.app.AlertDialog.Builder(getContext())
+                    .setTitle(Ui.tr("Escolha um app para mostrar de novo", "Pick an app to show it again", "Elige una app para mostrarla de nuevo"))
+                    .setItems(labels, (d, which) -> {
+                        List<String> now = Prefs.hiddenApps();
+                        now.remove(hidden.get(which));
+                        Prefs.setHiddenApps(now);
+                        invalidate();
+                    })
+                    .setNegativeButton(Ui.tr("Fechar", "Close", "Cerrar"), null)
                     .show();
         }
 
@@ -3147,6 +3375,10 @@ public class SettingsActivity extends Activity {
                 goBack();
                 return;
             }
+            if (screen == HIDDEN_APPS) {   // the app in focus comes back
+                hiddenRestore();
+                return;
+            }
             if (screen == AVATARS) {   // the avatar picked: back to the profile
                 if (focus >= 0 && focus < Avatars.IDS.length) Prefs.setAvatar(Avatars.IDS[focus]);
                 screen = MAIN;
@@ -3161,7 +3393,7 @@ public class SettingsActivity extends Activity {
             }
             if (screen == HOME_CHOICE) {
                 boolean wantFree = focus == 0;
-                if (wantFree != homeIsBorealis() && !busy()) {
+                if (wantFree != freeActive() && !busy()) {   // soft Home counts as not-yet-full: choosing Borealis tries ADB again
                     HomeMode.request(c, wantFree ? HomeMode.FREE : HomeMode.ORIGINAL);
                     pendingAt = SystemClock.uptimeMillis();
                 }
@@ -3218,6 +3450,8 @@ public class SettingsActivity extends Activity {
                     openWallpapers(true, true);   // the screensaver picker (its "Preview" button plays it)
                 } else if (id == ID_SHELF) {
                     openShelfEditor();
+                } else if (id == ID_HIDDEN) {
+                    openHiddenApps(false);
                 } else if (id == ID_LAUNCHER) {
                     if (busy()) return;
                     screen = HOME_CHOICE;

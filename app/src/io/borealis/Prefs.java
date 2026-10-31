@@ -194,6 +194,20 @@ final class Prefs {
         put("shelf", sb.toString());
     }
 
+    // MARK: - Hidden apps (hidden from the shelf and from All Apps; Settings > Hidden apps brings them back)
+
+    static List<String> hiddenApps() {
+        List<String> out = new ArrayList<>();
+        for (String p : sp().getString("hiddenApps", "").split(",")) if (!p.isEmpty()) out.add(p);
+        return out;
+    }
+
+    static void setHiddenApps(List<String> packages) {
+        StringBuilder sb = new StringBuilder();
+        for (String p : packages) sb.append(sb.length() == 0 ? "" : ",").append(p);
+        put("hiddenApps", sb.toString());
+    }
+
     // MARK: - Remote buttons
 
     private static String defaultApp(int keyCode) {

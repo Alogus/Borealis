@@ -267,6 +267,19 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private String clockText = "";
     private long clockMinute = -1;
     private boolean okDown, backDown;
+    /** A long OK on a shelf app opens its menu (move, hide, remove); "moving" is the mode where the arrows move that app. */
+    private boolean moving;
+    private final Runnable longOk = this::longOkFired;
+
+    private void longOkFired() {
+        if (!okDown || menuOpen) return;
+        boolean here = sheetOpen ? phGrid < 0 && !panel.isEmpty() && gridIndex < panel.size()
+                : zone == Z_SHELF && !onPlaceholder() && !shelf.isEmpty() && shelfIndex < shelf.size();
+        if (!here) return;
+        okDown = false;
+        if (!ui.getBoolean("longOkUsed", false)) ui.edit().putBoolean("longOkUsed", true).apply();   // the hint is not needed any more
+        openCardMenu();
+    }
 
     private Paint labelPaint, metaPaint, clockPaint, buttonPaint, capsuleText, tipPaint, quotePaint, staleQuote;
     private Paint rowTitle, drawerLabel, cardTitle, cardText, cardDim, cardDimRight, bigTemp, hourPaint, hourTemp;
@@ -428,7 +441,61 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         noticeIfNewer();
     }
 
+    private int bellOffset() {
+        return !lightButtons.isEmpty() && lightButtons.get(0).kind == HomeApps.UPDATE ? 1 : 0;
+    }
+
+    /** The bell appears (or goes) when a new version is found (or installed); the focus stays on the same button. */
+    private void refreshUpdateButton() {
+        boolean has = bellOffset() == 1, want = !Update.newer(getContext()).isEmpty();
+        if (has == want) return;
+        makeLightButtons();
+        if (topIndex >= 3) topIndex = Math.max(3, topIndex + (want ? 1 : -1));
+        layoutButtons();
+        retarget(true);
+        status.invalidate();
+    }
+
+    /** The bell was pressed: say what is new and offer to install it. */
+    private void askUpdate() {
+        final String version = Update.newer(getContext());
+        if (version.isEmpty() || !(activity instanceof HomeActivity)) return;
+        ((HomeActivity) activity).showNotice(false,
+                Ui.tr("Nova versão: ", "New version: ", "Nueva versión: ") + version,
+                Ui.tr("Atualizar leva menos de um minuto. O Android pedirá uma última confirmação para instalar.",
+                        "Updating takes under a minute. Android will ask one last confirmation to install.",
+                        "Actualizar toma menos de un minuto. Android te pedirá una última confirmación para instalar."),
+                Ui.tr("Atualizar agora", "Update now", "Actualizar ahora"), this::startUpdate,
+                Ui.tr("Agora não", "Not now", "Ahora no"), null);
+    }
+
+    private void startUpdate() {
+        final Context c = getContext();
+        if (!Update.canInstall(c)) {   // once: Android's own switch for "install apps from this source"
+            if (activity instanceof HomeActivity) {
+                ((HomeActivity) activity).showNotice(false,
+                        Ui.tr("Uma permissão, só uma vez", "One permission, just once", "Un permiso, solo una vez"),
+                        Ui.tr("Na próxima tela ative \"Permitir desta fonte\" e volte. Depois toque no sino de novo.",
+                                "On the next screen turn on \"Allow from this source\" and come back. Then press the bell again.",
+                                "En la siguiente pantalla activa \"Permitir de esta fuente\" y vuelve. Luego presiona la campana otra vez."),
+                        "OK", () -> Update.askPermission(activity), null, null);
+            }
+            return;
+        }
+        if (Update.lowSpace(c)) {
+            showToast(Update.lowSpaceMessage(c));
+            return;
+        }
+        showToast(Ui.tr("Baixando a atualização…", "Downloading the update…", "Descargando la actualización…"));
+        Update.install(c, (ok, error) -> {
+            if (!ok && Update.LOW_SPACE.equals(error)) showToast(Update.lowSpaceMessage(c));
+            else if (!ok) showToast(Ui.tr("Não foi possível instalar agora (" + error + ").", "Could not install right now (" + error + ").",
+                    "No se pudo instalar ahora (" + error + ")."));
+        });
+    }
+
     private void noticeIfNewer() {
+        refreshUpdateButton();
         String newer = Update.newer(getContext());
         if (newer.isEmpty()) return;
         String key = newer + ":" + System.currentTimeMillis() / (24L * 3600 * 1000);
@@ -522,6 +589,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** The three corner buttons, with their names in the current language. */
     private void makeLightButtons() {
         lightButtons.clear();
+        String newVersion = Update.newer(getContext());
+        if (!newVersion.isEmpty()) {   // a new version: the bell, first at the left
+            lightButtons.add(HomeApps.action(HomeApps.UPDATE, "update", Ui.tr("Atualizar para ", "Update to ", "Actualizar a ") + newVersion, "bell"));
+        }
         lightButtons.add(HomeApps.action(HomeApps.WIFI, "wifi", "Wi-Fi", "wifi"));
         lightButtons.add(HomeApps.action(HomeApps.BLUETOOTH, "bluetooth", "Bluetooth", "bluetooth"));
         lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("Entrada de vídeo", "Video input", "Entrada de video"), "hdmi"));
@@ -715,7 +786,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             menuLayer.invalidate();
             menuDirty = false;
         }
-        menuLayer.setVisibility(menu.value > 0.002f || menuOpen ? VISIBLE : INVISIBLE);
+        menuLayer.setVisibility(menu.value > 0.002f || menuOpen || moving ? VISIBLE : INVISIBLE);
         if (menuOpen && up - menuAt > (screenReader() ? 30000 : 4000)) closeMenu();
         if (topMoving) status.invalidate();
         heroMoving |= topMoving | cardsMoving | growMoving;
@@ -1220,6 +1291,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         scene.liquid(c, platterRect, radius, tone(0xFFFFFFFF, SMOKE), tone(0.42f, 0.12f), tone(0.03f, 0.08f),
                 tone(30, 34) * k, tone(22, 28) * k, tone(0.65f, 0.95f), 1);
     }
+
+    private Paint hintPaint;
+    private float hintK;
 
     /** The quotes row's text and sizes, for one set of coins, prices and text size. */
     private final class Quotes {
@@ -1821,6 +1895,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (HomeApps.Item it : others) if (it.pkg == null || !pinned.contains(it.pkg)) rest.add(it);   // no duplicates
         java.util.Collections.sort(rest, (x, y) -> x.label.toLowerCase(java.util.Locale.ROOT).compareTo(y.label.toLowerCase(java.util.Locale.ROOT)));
         all.addAll(rest);
+        int hiddenCount = Prefs.hiddenApps().size();
+        if (hiddenCount > 0) all.add(hiddenCard(hiddenCount));   // at the very end: the way back to the hidden apps
         panel = all;
         gridFocus = new Spring[panel.size()];
         for (int i = 0; i < gridFocus.length; i++) gridFocus[i] = new Spring(0.3f, 0.82f, 0);
@@ -1957,6 +2033,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (focused >= 0) drawPanelCell(c, focused);   // the focused one last, over its neighbours
         for (int i = 0; i < phCount(); i++) drawPlaceholder(c, i, sc);
         c.restore();
+        // A small, quiet hint at the bottom: holding OK on an app opens its options.
+        if (hintPaint == null || hintK != k) {
+            hintK = k;
+            hintPaint = Ui.text(Ui.regular, 22 * k, 0xFFFFFFFF);
+            hintPaint.setTextAlign(Paint.Align.CENTER);
+        }
+        // At the bottom of the screen; it shows as the panel opens, and never again once OK has been held on an app.
+        hintPaint.setAlpha(ui.getBoolean("longOkUsed", false) ? 0 : Math.round(170 * Ui.clamp(openness() * 2 - 0.5f)));
+        c.drawText(Ui.tr("Segure OK sobre um app para ver as opções", "Hold OK on an app for options", "Mantén OK sobre una app para ver opciones"),
+                w / 2f, h - 34 * k, hintPaint);
     }
 
     /**
@@ -2057,7 +2143,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** The first thing that can hold focus in the top row: the selected tab, or (without tabs) the first corner button. */
     private int topHome() {
-        return tabsVisible() ? tab : 3;
+        return tabsVisible() ? tab : 3 + bellOffset();
     }
 
     private String sectionTitle = "";
@@ -2247,7 +2333,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 setShelf(s);
                 setStatusItems(st);
                 setDrawerItems(d);
-                if (!sheetOpen) setOthers(o);
+                if (!sheetOpen || refreshSheet) {
+                    refreshSheet = false;
+                    setOthers(o);
+                }
             });
         });
     }
@@ -2256,6 +2345,25 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     boolean onKey(KeyEvent e) {
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+        if (moving) {   // moving a shelf app: left and right move it; OK or Back finish
+            int kc = e.getKeyCode();
+            if (kc == KeyEvent.KEYCODE_DPAD_LEFT || kc == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                if (down) moveShelfApp(kc == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
+                return true;
+            }
+            if (kc == KeyEvent.KEYCODE_DPAD_UP || kc == KeyEvent.KEYCODE_DPAD_DOWN) return true;
+            if (kc == KeyEvent.KEYCODE_DPAD_CENTER || kc == KeyEvent.KEYCODE_ENTER || kc == KeyEvent.KEYCODE_NUMPAD_ENTER
+                    || kc == KeyEvent.KEYCODE_BACK) {
+                if (down && e.getRepeatCount() == 0) {
+                    moving = false;
+                    menuDirty = true;
+                    click.open();
+                    showToast(Ui.tr("Posição guardada.", "Position saved.", "Posición guardada."));
+                }
+                return true;
+            }
+            return false;
+        }
         switch (e.getKeyCode()) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
                 if (down) move(-1, 0);
@@ -2275,8 +2383,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 // Opens on release, and only if the press happened here: the release of an OK pressed inside another
                 // app opens nothing.
                 if (down) {
-                    if (e.getRepeatCount() == 0) okDown = true;
+                    if (e.getRepeatCount() == 0) {
+                        okDown = true;
+                        handler.removeCallbacks(longOk);
+                        handler.postDelayed(longOk, 650);   // held: the shelf app's menu
+                    }
                 } else {
+                    handler.removeCallbacks(longOk);
                     if (okDown && !e.isCanceled() && spoken.keyClick()) activate();
                     okDown = false;
                 }
@@ -2294,7 +2407,193 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
     }
 
+    // MARK: - The "Hidden apps" card at the end of All Apps
+
+    private Bitmap hiddenTile;
+
+    private HomeApps.Item hiddenCard(int count) {
+        if (hiddenTile == null) {
+            Bitmap b = Bitmap.createBitmap(HomeApps.TILE_W, HomeApps.TILE_H, Bitmap.Config.ARGB_8888);
+            Canvas cv = new Canvas(b);
+            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+            p.setShader(new LinearGradient(0, 0, HomeApps.TILE_W, HomeApps.TILE_H, new int[] {0xFF3A3346, 0xFF221F2B}, null, Shader.TileMode.CLAMP));
+            cv.drawRect(0, 0, HomeApps.TILE_W, HomeApps.TILE_H, p);
+            p.setShader(null);
+            Symbols.draw(getContext(), cv, "visibility_off", HomeApps.TILE_W / 2f, HomeApps.TILE_H / 2f, 100, 0xE6FFFFFF);
+            hiddenTile = b;
+        }
+        HomeApps.Item it = new HomeApps.Item();
+        it.kind = HomeApps.HIDDEN_CARD;
+        it.key = "hidden-apps";
+        it.label = Ui.tr("Apps ocultos", "Hidden apps", "Apps ocultas") + " (" + count + ")";
+        it.tile = hiddenTile;
+        return it;
+    }
+
+    // MARK: - Card menu (long OK on an app): the same dropdown as HDMI and Settings, hanging from the card
+
+    private boolean cardMenu, menuAbove, refreshSheet;
+    private final RectF menuCard = new RectF();
+    private float menuTy;
+    private final Paint moveArrow = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+    /** Where the focused card is, in screen coordinates (the shelf's tile, or the cell of the open panel). */
+    private boolean cardRect(RectF out) {
+        if (sheetOpen) {
+            if (phGrid >= 0 || gridIndex < 0 || gridIndex >= panel.size()) return false;
+            panelRect(gridIndex, scroll.value, out);
+        } else {
+            if (shelfIndex < 0 || shelfIndex >= shelf.size()) return false;
+            panelRect(shelfIndex, 0, out);
+        }
+        out.offset(0, sheetLayer.getTranslationY());
+        return true;
+    }
+
+    private MRow cardRow(String symbol, String label, Runnable run) {
+        MRow r = new MRow();
+        r.symbol = symbol;
+        r.label = label;
+        r.run = run;
+        return r;
+    }
+
+    private void openCardMenu() {
+        RectF r = new RectF();
+        if (!cardRect(r)) return;
+        final HomeApps.Item it = sheetOpen ? panel.get(gridIndex) : shelf.get(shelfIndex);
+        if (it.pkg == null || it.kind != HomeApps.APP) return;
+        boolean pinned = !sheetOpen || gridIndex < pinnedCount;
+        menuRows.clear();
+        if (pinned) {   // an app of the shelf: move it or take it off
+            menuRows.add(cardRow("swap_horiz", Ui.tr("Mover", "Move", "Mover"), this::startMoving));
+            menuRows.add(cardRow("close", Ui.tr("Remover da prateleira", "Remove from the shelf", "Quitar del estante"), () -> removeFromShelf(it)));
+        } else {        // any other app of the panel: hide it
+            menuRows.add(cardRow("visibility_off", Ui.tr("Ocultar", "Hide", "Ocultar"), () -> hideApp(it)));
+        }
+        float boxH = menuRows.size() * 62 * k + 28 * k;
+        menuAbove = r.bottom + 30 * k + boxH + 12 * k > h;   // no room below: it hangs above the card
+        menuCard.set(r);
+        menuTy = menuAbove ? r.top - 30 * k - boxH : r.bottom;
+        menuLayer.setTranslationY(menuTy);
+        cardMenu = true;
+        menuOpen = true;
+        menuIndex = 0;
+        menuAt = SystemClock.uptimeMillis();
+        menu.target = 1;
+        menuDirty = true;
+        click.open();
+        spoken.focusMoved();
+    }
+
+    private void activateCardMenu() {
+        if (menuIndex < 0 || menuIndex >= menuRows.size()) return;
+        Runnable run = menuRows.get(menuIndex).run;
+        cardMenu = false;
+        menuOpen = false;
+        menu.target = 0;
+        menuDirty = true;
+        click.open();
+        if (run != null) run.run();
+    }
+
+    private List<String> shelfPackagesNow() {
+        List<String> out = new ArrayList<>();
+        for (HomeApps.Item it : shelf) if (it.pkg != null) out.add(it.pkg);
+        return out;
+    }
+
+    private void removeFromShelf(HomeApps.Item it) {
+        List<String> pkgs = shelfPackagesNow();
+        pkgs.remove(it.pkg);
+        Prefs.setShelf(pkgs);
+        showToast(it.label + Ui.tr(" saiu da prateleira.", " is off the shelf.", " salió del estante."));
+        refreshSheet = true;
+        reload();
+    }
+
+    private void hideApp(HomeApps.Item it) {
+        List<String> hidden = Prefs.hiddenApps();
+        if (!hidden.contains(it.pkg)) hidden.add(it.pkg);
+        Prefs.setHiddenApps(hidden);
+        showToast(it.label + Ui.tr(" oculto. Para mostrar: Configurações → Apps ocultos.",
+                " hidden. To show it again: Settings → Hidden apps.",
+                " oculta. Para mostrarla: Ajustes → Apps ocultas."));
+        refreshSheet = true;
+        reload();
+    }
+
+    private void startMoving() {
+        moving = true;
+        updateMoveArrows();
+        showToast(Ui.tr("Mova com as setas esquerda e direita. OK para terminar.",
+                "Move it with the left and right arrows. OK to finish.",
+                "Muévela con las flechas izquierda y derecha. OK para terminar."));
+    }
+
+    /** The arrows around the card being moved live in the menu layer, which is moved to the card's height. */
+    private void updateMoveArrows() {
+        RectF r = new RectF();
+        if (cardRect(r)) {
+            menuTy = r.centerY() - 120 * k;
+            menuLayer.setTranslationY(menuTy);
+        }
+        menuDirty = true;
+    }
+
+    private void drawMoveArrows(Canvas c) {
+        RectF r = new RectF();
+        if (!cardRect(r)) return;
+        r.offset(0, -menuTy);
+        int index = sheetOpen ? gridIndex : shelfIndex, count = sheetOpen ? pinnedCount : shelf.size();
+        moveArrow.setStyle(Paint.Style.STROKE);
+        moveArrow.setStrokeWidth(4.5f * k);
+        moveArrow.setStrokeCap(Paint.Cap.ROUND);
+        moveArrow.setStrokeJoin(Paint.Join.ROUND);
+        for (int side = -1; side <= 1; side += 2) {
+            if ((side < 0 && index <= 0) || (side > 0 && index >= count - 1)) continue;
+            float cx = side < 0 ? r.left + 30 * k : r.right - 30 * k, cy = r.centerY();
+            fill.setShader(null);
+            fill.setColor(Ui.alpha(0xFF000000, 0.55f));
+            c.drawCircle(cx, cy, 24 * k, fill);
+            Path chevron = new Path();
+            chevron.moveTo(cx - side * 5 * k, cy - 11 * k);
+            chevron.lineTo(cx + side * 6 * k, cy);
+            chevron.lineTo(cx - side * 5 * k, cy + 11 * k);
+            moveArrow.setColor(0xFFFFFFFF);
+            c.drawPath(chevron, moveArrow);
+        }
+    }
+
+    /** One step left or right for the app being moved: the shelf (and the open panel) change on screen at once and it is saved. */
+    private void moveShelfApp(int dir) {
+        int from = sheetOpen ? gridIndex : shelfIndex, to = from + dir;
+        int limit = sheetOpen ? pinnedCount : shelf.size();
+        if (from < 0 || from >= shelf.size() || to < 0 || to >= limit) return;
+        List<HomeApps.Item> copy = new ArrayList<>(shelf);
+        java.util.Collections.swap(copy, from, to);
+        setShelf(copy);
+        if (sheetOpen) {
+            rebuildPanel();
+            gridIndex = to;
+            retargetGrid(false);
+            gridDirty = true;
+        }
+        shelfIndex = Math.min(to, Math.max(0, shelf.size() - 1));
+        List<String> pkgs = new ArrayList<>();
+        for (HomeApps.Item it : copy) if (it.pkg != null) pkgs.add(it.pkg);
+        Prefs.setShelf(pkgs);
+        retarget(false);
+        updateMoveArrows();
+        click.move();
+    }
+
     private void back() {
+        if (menuOpen && cardMenu) {
+            closeMenu();
+            click.move();
+            return;
+        }
         if (zone == Z_MENU) {
             closeMenu();
             click.move();
@@ -2315,6 +2614,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void move(int dx, int dy) {
+        if (menuOpen && cardMenu) {
+            moveMenu(dx, dy);
+            return;
+        }
         if (sheetOpen) {
             moveGrid(dx, dy);
             return;
@@ -2479,6 +2782,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void activate() {
+        if (menuOpen && cardMenu) {
+            activateCardMenu();
+            return;
+        }
         if (zone == Z_MENU) {
             activateMenu();
             return;
@@ -2541,6 +2848,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         if (it.kind == HomeApps.ALL_APPS) {
             openSheet();
+            return;
+        }
+        if (it.kind == HomeApps.HIDDEN_CARD) {   // the card at the end of All Apps
+            try {
+                activity.startActivity(new android.content.Intent(activity, SettingsActivity.class).putExtra("hidden", true));
+            } catch (RuntimeException ignored) {
+            }
+            return;
+        }
+        if (it.kind == HomeApps.UPDATE) {   // the bell
+            askUpdate();
             return;
         }
         if (!sheetOpen && zone == Z_TOP && (it.kind == HomeApps.INPUTS || it.kind == HomeApps.WIFI || it.kind == HomeApps.BLUETOOTH || it.kind == HomeApps.SETTINGS)) {   // only the corner buttons open menus
@@ -3364,6 +3682,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 fill.setAlpha(255);
             }
             Symbols.draw(getContext(), c, it.symbol, cell.left + ch / 2, cell.centerY(), 28 * k * s, 0xFFFFFFFF);
+            if (it.kind == HomeApps.UPDATE) {   // a small dot: there is something new
+                fill.setShader(null);
+                fill.setColor(MELON);
+                c.drawCircle(cell.left + ch * 0.72f, cell.top + ch * 0.26f, 7 * k * s, fill);
+            }
             if (f > 0.35f) {   // the name appears once the pill is wide enough
                 btnLabel.setAlpha(Math.round(255 * Ui.clamp((f - 0.35f) / 0.65f)));
                 c.drawText(it.label, cell.left + ch - 2 * k, cell.centerY() + Ui.halfCap(btnLabel), btnLabel);
@@ -3393,9 +3716,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int bars = -1;          // 0..4 draws signal bars instead of the symbol
         boolean dim, dot;       // dim = grayed out; dot = shows the status dot (HDMI)
         boolean on;             // dot filled
+        Runnable run;           // the card menu's action
     }
 
     private void openMenu(int kind) {
+        cardMenu = false;
+        menuLayer.setTranslationY(0);
+        menuTy = 0;
         menuRows.clear();
         for (int i = 0; i < lightButtons.size(); i++) if (lightButtons.get(i).kind == kind) menuButton = i;
         if (kind == HomeApps.INPUTS) {
@@ -3573,6 +3900,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void closeMenu() {
+        if (cardMenu) {   // the card's menu: the focus never left the card
+            cardMenu = false;
+            menuOpen = false;
+            menu.target = 0;
+            menuDirty = true;
+            spoken.focusMoved();
+            return;
+        }
         menuOpen = false;
         menu.target = 0;
         menuDirty = true;
@@ -3633,15 +3968,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             wantW = Math.max(wantW, need + 2 * pad);
         }
         float w = Math.min(wantW, 620 * k);
-        RectF btn = topRects[3 + menuButton];
+        RectF btn = new RectF(cardMenu ? menuCard : topRects[3 + menuButton]);
+        if (cardMenu) btn.offset(0, -menuTy);
         float left = btn.centerX() - w / 2;
         if (left + w > CONTENT_R * k + 24 * k) left = CONTENT_R * k + 24 * k - w;
-        float top = btn.bottom + 30 * k;
+        if (left < 10 * k) left = 10 * k;
+        float top = cardMenu && menuAbove ? btn.top - 30 * k - (menuRows.size() * rowH + 2 * pad) : btn.bottom + 30 * k;
         out.set(left + pad, top + pad + i * rowH, left + w - pad, top + pad + i * rowH + rowH - 8 * k);
         return true;
     }
 
     private void drawMenu(Canvas c) {
+        if (moving) drawMoveArrows(c);
         float m = Ui.clamp(menu.value);
         if (m <= 0.005f || menuRows.isEmpty() || btnLabel == null) return;
         int n = menuRows.size();
@@ -3652,10 +3990,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             wantW = Math.max(wantW, need + 2 * pad);
         }
         float w = Math.min(wantW, 620 * k), h = n * rowH + 2 * pad;
-        RectF btn = topRects[3 + menuButton];
+        RectF btn = new RectF(cardMenu ? menuCard : topRects[3 + menuButton]);
+        if (cardMenu) btn.offset(0, -menuTy);
         float left = btn.centerX() - w / 2;
         if (left + w > CONTENT_R * k + 24 * k) left = CONTENT_R * k + 24 * k - w;
-        float top = btn.bottom + 30 * k;
+        if (left < 10 * k) left = 10 * k;
+        float top = cardMenu && menuAbove ? btn.top - 30 * k - h : btn.bottom + 30 * k;
         c.save();
         c.translate(0, (1 - m) * -14 * k);
         RectF box = new RectF(left, top, left + w, top + h);
@@ -3668,9 +4008,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.drawRoundRect(box, 30 * k, 30 * k, fill);
         Path arrow = new Path();
         float ax = Math.max(left + 44 * k, Math.min(left + w - 44 * k, btn.centerX()));
-        arrow.moveTo(ax - 13 * k, top + 1);
-        arrow.lineTo(ax, top - 15 * k);
-        arrow.lineTo(ax + 13 * k, top + 1);
+        if (cardMenu && menuAbove) {   // hanging above the card: the arrow points down at it
+            arrow.moveTo(ax - 13 * k, top + h - 1);
+            arrow.lineTo(ax, top + h + 15 * k);
+            arrow.lineTo(ax + 13 * k, top + h - 1);
+        } else {
+            arrow.moveTo(ax - 13 * k, top + 1);
+            arrow.lineTo(ax, top - 15 * k);
+            arrow.lineTo(ax + 13 * k, top + 1);
+        }
         arrow.close();
         c.drawPath(arrow, fill);
         for (int i = 0; i < n; i++) {

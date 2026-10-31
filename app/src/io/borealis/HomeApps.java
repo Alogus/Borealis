@@ -57,6 +57,10 @@ final class HomeApps {
     static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5;
     /** The "HDMI Inputs" button: opens the bottom drawer on the inputs (the home screen handles it). */
     static final int INPUTS = 7, WIFI = 8, BLUETOOTH = 9;
+    /** The card at the end of All Apps that opens the hidden apps (only there when some app is hidden). */
+    static final int HIDDEN_CARD = 40;
+    /** The bell in the corner buttons: a new version is available. */
+    static final int UPDATE = 41;
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
     static final int TILE_W = 384, TILE_H = 216;
 
@@ -114,8 +118,10 @@ final class HomeApps {
     static List<Item> shelf(Context c, boolean extract) {
         List<Item> items = new ArrayList<>();
         PackageManager pm = c.getPackageManager();
+        List<String> hiddenByUser = Prefs.hiddenApps();
         for (String pkg : shelfPackages(c)) {
             if (items.size() >= MAX_SHELF) break;
+            if (hiddenByUser.contains(pkg)) continue;
             Intent launch = launchIntent(pm, pkg);
             if (launch == null) continue;
             ResolveInfo ri = pm.resolveActivity(launch, 0);
@@ -140,6 +146,28 @@ final class HomeApps {
             items.add(it);
         }
         return items;
+    }
+
+    /** One app as an item (name and art), or null when it is not installed (used by the hidden apps screen). */
+    static Item item(Context c, String pkg) {
+        PackageManager pm = c.getPackageManager();
+        Intent launch = launchIntent(pm, pkg);
+        if (launch == null) return null;
+        ResolveInfo ri = pm.resolveActivity(launch, 0);
+        String[] d = known(pkg);
+        Item it = new Item();
+        it.kind = APP;
+        it.pkg = pkg;
+        if (d == null) {
+            it.key = pkg;
+            it.label = ri != null ? String.valueOf(ri.loadLabel(pm)) : pkg;
+            it.tile = appTile(c, null, pkg, 0);
+        } else {
+            it.key = d[0];
+            it.label = d[1];
+            it.tile = appTile(c, d[0], d[2], 0xFF000000 | Integer.parseInt(d[3], 16));
+        }
+        return it;
     }
 
     private static String[] known(String pkg) {
@@ -321,6 +349,7 @@ final class HomeApps {
         skip.addAll(java.util.Arrays.asList(LIVE_TV_APPS));
         skip.add(c.getPackageName());
         skip.addAll(HIDDEN);
+        skip.addAll(Prefs.hiddenApps());   // the ones the person hid (Settings > Hidden apps)
         Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
         List<Item> items = new ArrayList<>();
         Set<String> seen = new HashSet<>();

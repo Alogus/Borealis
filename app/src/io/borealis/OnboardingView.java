@@ -35,7 +35,7 @@ final class OnboardingView extends View {
     /** `welcome` is true when the person finished it (the opening for new people plays), false when they skipped it. */
     interface Done { void done(boolean welcome); }
 
-    private static final int S_WELCOME = 0, S_LANG = 1, S_NAME = 2, S_HOME = 3, S_PERM = 4, S_DONE = 5;
+    private static final int S_WELCOME = 0, S_LANG = 1, S_NAME = 2, S_HOME = 3, S_PERM = 4, S_DONE = 5, S_SHELF = 6;
     private static boolean langChosen;    // nothing is selected on the language screen until the person picks
     private static boolean homeChosen;   // nothing is selected on "what do you want to see first" until the person picks
     private static int savedStep;   // the step's id; survives the activity being rebuilt (a language change, a system screen)
@@ -84,6 +84,7 @@ final class OnboardingView extends View {
     private static final String[] LANGS = {"es", "en", "pt", "auto"};
 
     private final Done done;
+    private final ShelfDemo shelfDemo = new ShelfDemo();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Click click;
     private final Spoken spoken;
@@ -179,7 +180,7 @@ final class OnboardingView extends View {
 
     /** The steps in order: the notification access is only asked when "Continue watching" was chosen. */
     private int[] flow() {
-        return !homeChosen || Prefs.cardsMode().equals("recent") ? new int[] {S_WELCOME, S_LANG, S_NAME, S_HOME, S_PERM, S_DONE} : new int[] {S_WELCOME, S_LANG, S_NAME, S_HOME, S_DONE};
+        return !homeChosen || Prefs.cardsMode().equals("recent") ? new int[] {S_WELCOME, S_LANG, S_NAME, S_HOME, S_PERM, S_SHELF, S_DONE} : new int[] {S_WELCOME, S_LANG, S_NAME, S_HOME, S_SHELF, S_DONE};
     }
 
     private int indexOf(int id) {
@@ -200,6 +201,7 @@ final class OnboardingView extends View {
             case S_NAME: return T("Nome", "Name", "Nombre");
             case S_HOME: return T("Tela inicial", "Home screen", "Pantalla de inicio");
             case S_PERM: return T("Permissão", "Permission", "Permiso");
+            case S_SHELF: return T("Estante", "Shelf", "Estante");
             default: return T("Pronto", "Done", "Listo");
         }
     }
@@ -252,6 +254,7 @@ final class OnboardingView extends View {
                     : T("Como você quer que eu te chame?", "What should we call you?", "¿Cómo quieres que te llame?");
             case S_HOME: return T("O que você quer ver primeiro?", "What do you want to see first?", "¿Qué quieres ver primero?");
             case S_PERM: return T("Para continuar de onde você parou", "To pick up where you left off", "Para continuar donde lo dejaste");
+            case S_SHELF: return T("Personalize o seu estante", "Make the shelf yours", "Personaliza tu estante");
             default: {
                 String n = Prefs.name();
                 return n.isEmpty() ? T("Tudo pronto", "All set", "Todo listo") : T("Tudo pronto, ", "All set, ", "Todo listo, ") + n;
@@ -280,6 +283,9 @@ final class OnboardingView extends View {
             case S_PERM: return T("O Borealis precisa saber qual app você está usando para mostrar o que ficou pela metade. Ele não vê o conteúdo e nada sai da sua TV.",
                     "Borealis needs to know which app you are using to show what you left half-watched. It doesn't see the content and nothing leaves your TV.",
                     "Borealis necesita saber qué app estás usando para mostrarte lo que dejaste a medias. No ve el contenido y nada sale de tu TV.");
+            case S_SHELF: return T("Segure OK sobre um app do estante para movê-lo, removê-lo ou ocultá-lo. Os apps ocultos ficam no fim de Todos os apps, e de lá você pode mostrá-los de novo.",
+                    "Hold OK on a shelf app to move it, remove it or hide it. Hidden apps wait at the end of All apps, and you can bring them back from there.",
+                    "Mantén OK sobre una app del estante para moverla, quitarla u ocultarla. Las apps ocultas quedan al final de Todas las apps y desde ahí puedes volver a mostrarlas.");
             default: return T("Você pode ajustar o que quiser em Configurações, como o botão de ajustes do controle e o som de abertura.",
                     "You can adjust anything in Settings, like the remote's settings button and the startup sound.",
                     "Puedes ajustar lo que quieras en Configuración, como el botón de ajustes del control y el sonido de inicio.");
@@ -955,6 +961,13 @@ final class OnboardingView extends View {
                         "Al activarlo, la TV abrirá una lista: busca “Borealis”, actívalo y vuelve con Atrás.");
                 drawWrapped(c, msg, cx, top + 636 * k, 900 * k, hint, 2);
                 return false;
+            }
+            case S_SHELF: {
+                c.drawText(stepTitle(), cx, top + 106 * k, title);
+                drawWrapped(c, stepBody(), cx, top + 130 * k, 1000 * k, body, 3);
+                tmp.set(cx - 400 * k, top + 270 * k, cx + 400 * k, top + 270 * k + 450 * k);
+                shelfDemo.draw(c, getContext(), tmp);
+                return true;
             }
             default: {
                 float r = 74 * k, cy = top + 160 * k;
