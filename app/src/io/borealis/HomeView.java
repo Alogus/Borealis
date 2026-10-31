@@ -2905,6 +2905,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             from.set(ui.getFloat("ret_l", 0), ui.getFloat("ret_t", 0), ui.getFloat("ret_r", 0), ui.getFloat("ret_b", 0));
         }
         ui.edit().remove("ret_pkg").apply();
+        // The soft Home (no ADB): the window arrives late and the full-screen card would sit there waiting for it. No zoom.
+        if (HomeMode.soft(getContext()) && !HomeMode.isFree(getContext())) {
+            endReturn();
+            return;
+        }
         boolean tooOld = at == 0 || System.currentTimeMillis() - at > RETURN_MAX_MS;
         AppLog.w("zoom back: item=" + (it == null ? "none" : it.pkg) + (tooOld ? " (too long ago)" : ""));
         if (it == null || tooOld || (panel.isEmpty() && shelf.isEmpty())) {
