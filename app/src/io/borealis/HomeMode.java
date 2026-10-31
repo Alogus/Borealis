@@ -234,12 +234,13 @@ final class HomeMode {
             Set<String> owners = wifiOwners(adb);
             boolean setupHome = setupIsHome(adb);
             if ((setupHome && owners.contains(GOOGLE_SETUP)) || owners.contains(packageOf(home))) {
-                throw new IOException(Ui.tr("a configuração inicial da TV salvou o Wi-Fi, e desligá-la apagaria essa rede. "
-                        + "Em Configurações → Rede e Internet, esqueça a rede, conecte de novo e tente outra vez.",
-                        "the TV's first setup saved the Wi-Fi, and turning it off would erase that network. "
-                        + "In Settings → Network & Internet, forget the network, connect again and try once more.",
-                        "la configuración inicial del TV guardó el Wi-Fi, y desactivarla borraría esa red. "
-                        + "En Ajustes → Red e Internet, olvida la red, vuelve a conectarte y vuelve a intentarlo."));
+                // Turning the TV's own home off would erase the saved Wi-Fi: nothing is turned off. The soft Home
+                // (the accessibility service takes the Home button) needs no ADB change at all.
+                setSoft(c, true);
+                done(c, Ui.tr("a configuração inicial da TV salvou o seu Wi-Fi e desligá-la apagaria essa rede. Para não perdê-la, usamos o modo sem ADB: ative o Borealis em Configurações → Acessibilidade e o botão Início abrirá o Borealis.",
+                        "the TV's first setup saved your Wi-Fi and turning it off would erase that network. To keep it, we use the no-ADB mode: turn Borealis on in Settings → Accessibility and the Home button will open Borealis.",
+                        "la configuración inicial del TV guardó tu Wi-Fi y apagarla borraría esa red. Para no perderla usamos el modo sin ADB: activa Borealis en Ajustes → Accesibilidad y el botón Inicio abrirá Borealis."));
+                return;
             }
             if (metrics(latest, ORIGINAL) == null && !home.isEmpty()) {
                 busy(c, Ui.tr("Medindo o Início original…", "Measuring the original home screen…"));
