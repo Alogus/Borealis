@@ -20,6 +20,14 @@ in your language (Español, English, Português). Designed and developed by **Al
   </tr>
 </table>
 
+## First run
+A one-minute welcome sets up your language, your name, your home screen and "Continue watching". You can repeat it any time from Settings.
+
+<table>
+  <tr><td width="33%"><img src="screenshots/onboarding-1-welcome.jpg" alt="Welcome"><br><sub>Welcome</sub></td><td width="33%"><img src="screenshots/onboarding-2-language.jpg" alt="Language"><br><sub>Language</sub></td><td width="33%"><img src="screenshots/onboarding-3-name.jpg" alt="Your name"><br><sub>Your name</sub></td></tr>
+  <tr><td width="33%"><img src="screenshots/onboarding-4-home.jpg" alt="Your home screen"><br><sub>Your home screen</sub></td><td width="33%"><img src="screenshots/onboarding-5-permission.jpg" alt="Continue watching"><br><sub>Continue watching</sub></td><td width="33%"><img src="screenshots/onboarding-6-done.jpg" alt="All set"><br><sub>All set</sub></td></tr>
+</table>
+
 ## What it does
 - A calm home screen with your apps, a shelf you can arrange, the weather and the time.
 - **Continue watching**: pick up what you left half-watched in your apps, or discover movies and shows (TMDB).
@@ -80,6 +88,14 @@ GitHub may show "MIT licenses found" because the original Free My TV code keeps 
     <td width="50%"><img src="screenshots/screensaver.jpg" alt="Screensaver"><br><sub>Protector de pantalla</sub></td>
     <td width="50%"><img src="screenshots/avatars.jpg" alt="Avatars"><br><sub>Elige tu avatar</sub></td>
   </tr>
+</table>
+
+## La primera vez
+Una bienvenida de un minuto configura tu idioma, tu nombre, tu pantalla de inicio y "Continuar viendo". Puedes repetirla cuando quieras desde Configuración.
+
+<table>
+  <tr><td width="33%"><img src="screenshots/onboarding-1-welcome.jpg" alt="Bienvenida"><br><sub>Bienvenida</sub></td><td width="33%"><img src="screenshots/onboarding-2-language.jpg" alt="Idioma"><br><sub>Idioma</sub></td><td width="33%"><img src="screenshots/onboarding-3-name.jpg" alt="Tu nombre"><br><sub>Tu nombre</sub></td></tr>
+  <tr><td width="33%"><img src="screenshots/onboarding-4-home.jpg" alt="Tu pantalla de inicio"><br><sub>Tu pantalla de inicio</sub></td><td width="33%"><img src="screenshots/onboarding-5-permission.jpg" alt="Continuar viendo"><br><sub>Continuar viendo</sub></td><td width="33%"><img src="screenshots/onboarding-6-done.jpg" alt="Todo listo"><br><sub>Todo listo</sub></td></tr>
 </table>
 
 ## Qué hace
