@@ -135,6 +135,39 @@ final class Update {
 
     interface Done { void done(boolean ok, String error); }
 
+    /** Android refuses to install when the TV is nearly full (about 10% of the storage, up to roughly 500 MB, must stay free). */
+    static final String LOW_SPACE = "low space";
+
+    /** What Android wants kept free on this TV, plus room for the update itself. */
+    static long needMb(Context c) {
+        try {
+            android.os.StatFs st = new android.os.StatFs(android.os.Environment.getDataDirectory().getPath());
+            long total = st.getTotalBytes() / (1024 * 1024);
+            return Math.min(total / 10, 500) + 40;
+        } catch (RuntimeException e) {
+            return 540;
+        }
+    }
+
+    static long freeMb(Context c) {
+        try {
+            android.os.StatFs st = new android.os.StatFs(android.os.Environment.getDataDirectory().getPath());
+            return st.getAvailableBytes() / (1024 * 1024);
+        } catch (RuntimeException e) {
+            return Long.MAX_VALUE;   // cannot tell: let Android decide
+        }
+    }
+
+    static boolean lowSpace(Context c) { return freeMb(c) < needMb(c); }
+
+    static String lowSpaceMessage(Context c) {
+        long free = freeMb(c);
+        String mb = free == Long.MAX_VALUE ? "?" : String.valueOf(free);
+        return Ui.tr("Pouco espaço na TV: restam " + mb + " MB e o Android precisa de pelo menos " + needMb(c) + " MB livres para instalar. Libere espaço (Configurações da TV → Apps: limpe dados ou desinstale apps que não usa) e tente de novo.",
+                "Not enough space on the TV: " + mb + " MB left, and Android needs at least " + needMb(c) + " MB free to install. Free some space (TV Settings → Apps: clear data or uninstall apps you don't use) and try again.",
+                "Poco espacio en la TV: quedan " + mb + " MB y Android necesita al menos " + needMb(c) + " MB libres para instalar. Libera espacio (Configuración de la TV → Apps: borra datos o desinstala apps que no uses) e inténtalo de nuevo.");
+    }
+
     /** Downloads the new version, checks it and hands it to Android's installer. `done` runs on the main thread (ok = the installer is open). */
     static void install(Context c, Done done) {
         final Context app = c.getApplicationContext();
@@ -144,6 +177,7 @@ final class Update {
         new Thread(() -> {
             String error = null;
             try {
+                if (lowSpace(app)) throw new Exception(LOW_SPACE);
                 if (apkUrl.isEmpty()) throw new Exception("no installer in the release");
                 File dir = new File(app.getCacheDir(), "update");
                 dir.mkdirs();

@@ -21,6 +21,9 @@ public class UpdateReceiver extends BroadcastReceiver {
                     AppLog.w("update confirmation could not open: " + e.getMessage());
                 }
             }
+        } else if (status == PackageInstaller.STATUS_FAILURE_STORAGE) {
+            AppLog.w("update install: not enough storage");
+            android.widget.Toast.makeText(c, Update.lowSpaceMessage(c), android.widget.Toast.LENGTH_LONG).show();
         } else if (status != PackageInstaller.STATUS_SUCCESS) {
             AppLog.w("update install status " + status + ": " + i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE));
         }

@@ -3005,11 +3005,17 @@ public class SettingsActivity extends Activity {
                         .setPositiveButton("OK", (d, w) -> Update.askPermission(c)).show();
                 return;
             }
+            if (Update.lowSpace(c)) {   // say it before downloading anything
+                tellUpdate(Update.lowSpaceMessage(c));
+                return;
+            }
             final android.app.AlertDialog wait = new android.app.AlertDialog.Builder(c).setTitle(Ui.tr("Atualizações", "Updates", "Actualizaciones"))
                     .setMessage(Ui.tr("Baixando a atualização…", "Downloading the update…", "Descargando la actualización…")).setCancelable(false).show();
             Update.install(c, (ok, error) -> {
                 wait.dismiss();
-                if (!ok) {
+                if (!ok && Update.LOW_SPACE.equals(error)) {
+                    tellUpdate(Update.lowSpaceMessage(c));
+                } else if (!ok) {
                     tellUpdate(Ui.tr("Não foi possível instalar agora (" + error + "). Tente de novo mais tarde.",
                             "Could not install right now (" + error + "). Try again later.",
                             "No se pudo instalar ahora (" + error + "). Inténtalo de nuevo más tarde."));
