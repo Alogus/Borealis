@@ -22,6 +22,7 @@ public class HomeActivity extends Activity {
     private SplashView splash;
     private OnboardingView onboarding;
     private FrameLayout root;
+    static final String EXTRA_UPDATED = "io.borealis.UPDATED";
     private int prefsVersion = Prefs.version;   // settings changed while we were away: start over
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -47,7 +48,9 @@ public class HomeActivity extends Activity {
         root = new FrameLayout(this);
         root.addView(home, new FrameLayout.LayoutParams(-1, -1));
         showWelcomeIfNeeded();   // under the opening, so it appears once the opening is over
-        if (savedInstanceState == null && coldStart()) playSplash();
+        boolean updated = getIntent() != null && getIntent().getBooleanExtra(EXTRA_UPDATED, false);
+        if (updated) getSharedPreferences("splash", MODE_PRIVATE).edit().putLong("at", android.os.SystemClock.elapsedRealtime()).apply();
+        if (updated || (savedInstanceState == null && coldStart())) playSplash();
         setContentView(root);
         getWindow().setBackgroundDrawable(null);
     }
