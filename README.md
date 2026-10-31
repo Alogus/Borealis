@@ -1,9 +1,24 @@
-# Borealis
+# Borealis TV Launcher
 
 **A light, beautiful home screen for Google TV and Android TV.** Your apps, your screensaver and "Continue watching",
 in your language (Español, English, Português). Designed and developed by **Alogus Tov**.
 
+**[⬇ Download the latest version](../../releases/latest)** · or on the TV open **Downloader** and type **3357424**
+
+<p align="center"><img src="screenshots/home.jpg" alt="Borealis home screen" width="100%"></p>
+
 > Beta. Tested so far on one TV (Android TV 11, 1280×720). Use it with care and tell me what you find.
+
+<table>
+  <tr>
+    <td width="50%"><img src="screenshots/settings.jpg" alt="Settings"><br><sub>Settings</sub></td>
+    <td width="50%"><img src="screenshots/wallpapers.jpg" alt="Wallpapers"><br><sub>Wallpapers</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="screenshots/screensaver.jpg" alt="Screensaver"><br><sub>Screensaver</sub></td>
+    <td width="50%"><img src="screenshots/avatars.jpg" alt="Avatars"><br><sub>Pick your avatar</sub></td>
+  </tr>
+</table>
 
 ## What it does
 - A calm home screen with your apps, a shelf you can arrange, the weather and the time.
@@ -43,14 +58,29 @@ Free for noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICE
 author. The name, logo, avatars and sound are not covered; see [NOTICE.md](NOTICE.md). Based on
 [Free My TV](https://github.com/simbasjungles/free-my-tv) (MIT, kept in [LICENSE-FreeMyTV](LICENSE-FreeMyTV)).
 
+GitHub may show "MIT licenses found" because the original Free My TV code keeps its MIT license. Borealis's own work is under PolyForm Noncommercial.
+
 ---
 
-# Borealis (Español)
+# Borealis TV Launcher (Español)
 
 **Una pantalla de inicio ligera y bonita para Google TV y Android TV.** Tus apps, tu protector de pantalla y
 "Continuar viendo", en tu idioma. Diseñado y desarrollado por **Alogus Tov**.
 
+**[⬇ Descarga la última versión](../../releases/latest)** · o en la TV abre **Downloader** y escribe **3357424**
+
 > Beta. Probado hasta ahora en una sola TV (Android TV 11, 1280×720). Úsalo con cuidado y cuéntame qué encuentras.
+
+<table>
+  <tr>
+    <td width="50%"><img src="screenshots/settings.jpg" alt="Settings"><br><sub>Configuración</sub></td>
+    <td width="50%"><img src="screenshots/wallpapers.jpg" alt="Wallpapers"><br><sub>Fondos de pantalla</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="screenshots/screensaver.jpg" alt="Screensaver"><br><sub>Protector de pantalla</sub></td>
+    <td width="50%"><img src="screenshots/avatars.jpg" alt="Avatars"><br><sub>Elige tu avatar</sub></td>
+  </tr>
+</table>
 
 ## Qué hace
 - Una pantalla de inicio tranquila con tus apps, un estante que organizas, el clima y la hora.
@@ -81,3 +111,5 @@ solo ayuda a que el trabajo continúe. ¡Gracias!
 Gratis para uso no comercial bajo la [PolyForm Noncommercial License 1.0.0](LICENSE). El uso comercial pertenece al
 autor. El nombre, el logo, los avatares y el sonido no están cubiertos; mira [NOTICE.md](NOTICE.md). Basado en
 [Free My TV](https://github.com/simbasjungles/free-my-tv) (MIT, en [LICENSE-FreeMyTV](LICENSE-FreeMyTV)).
+
+GitHub puede mostrar "MIT licenses found" porque el código original de Free My TV conserva su licencia MIT. El trabajo propio de Borealis está bajo PolyForm Noncommercial.
