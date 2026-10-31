@@ -1739,6 +1739,9 @@ public class SettingsActivity extends Activity {
         private boolean[] wpPending;
         private Bitmap[] wpBlurs;                 // each picture tiny and blurred: the soft backdrop behind everything
         private int wpBlurFrom = -1;
+        private Bitmap wpToLast;                      // the backdrop picture last drawn, and when it first appeared (so it fades in)
+        private long wpToAt;
+        private long[] wpThumbAt;                     // when each small picture first had its image (it fades in over its empty frame)
         private long wpBlurAt;
         private long wpZoomAt;                    // last frame of the wallpaper sample's slow zoom
         private boolean wpOnBack;                 // focus is on the "Back" button
@@ -1790,6 +1793,9 @@ public class SettingsActivity extends Activity {
             int n = wpFiles().length;
             wpFull = new Bitmap[n];
             wpFullAt = new long[n];
+            wpThumbAt = new long[n];
+            wpToLast = null;
+            wpToAt = 0;
             wpPending = new boolean[n];
             loadThumbs();
             wantFull(focus);
@@ -2026,7 +2032,8 @@ public class SettingsActivity extends Activity {
 
         private boolean wpFading() {
             long now = SystemClock.uptimeMillis();
-            if (now - wpBlurAt < 320) return true;
+            if (now - wpBlurAt < 320 || now - wpToAt < 320) return true;
+            if (wpThumbAt != null) for (long t : wpThumbAt) if (t != 0 && now - t < 280) return true;
             if (wpFullAt != null) for (long t : wpFullAt) if (now - t < 240) return true;
             return false;
         }
@@ -2189,12 +2196,19 @@ public class SettingsActivity extends Activity {
             float eb = Ui.clamp((SystemClock.uptimeMillis() - wpBlurAt) / 300f);
             Bitmap to = wpBlurs != null && focus < wpBlurs.length ? wpBlurs[focus] : null;
             Bitmap from = wpBlurs != null && wpBlurFrom >= 0 && wpBlurFrom < wpBlurs.length && wpBlurFrom != focus ? wpBlurs[wpBlurFrom] : null;
-            if (from != null && eb < 1) {
+            if (to != wpToLast) {   // a picture's backdrop just arrived (or the focus moved): it fades in
+                wpToLast = to;
+                wpToAt = SystemClock.uptimeMillis();
+            }
+            float ea = Ui.clamp((SystemClock.uptimeMillis() - wpToAt) / 300f);
+            // Until the picture's own backdrop is ready (and while it fades in) the settings' backdrop stays: no dark gap, no pop.
+            Bitmap under = from != null && (eb < 1 || to == null) ? from : (to == null || ea < 1 ? bgSoft : null);
+            if (under != null) {
                 wpImg.setAlpha(Math.round(255 * BACKDROP_ALPHA));
-                c.drawBitmap(from, null, waveDst, wpImg);
+                c.drawBitmap(under, null, waveDst, wpImg);
             }
             if (to != null) {
-                wpImg.setAlpha(Math.round(255 * BACKDROP_ALPHA * (from != null && eb < 1 ? eb : 1)));
+                wpImg.setAlpha(Math.round(255 * BACKDROP_ALPHA * (from != null && eb < 1 ? eb : ea)));
                 c.drawBitmap(to, null, waveDst, wpImg);
             }
             wpImg.setAlpha(255);
@@ -2309,23 +2323,28 @@ public class SettingsActivity extends Activity {
         private void drawThumb(Canvas c, int i, RectF r, float radius, float alpha) {
             Bitmap sm = wpSmall != null && i < wpSmall.length ? wpSmall[i] : null;
             Bitmap t = wpThumb != null ? wpThumb[i] : null;
+            if (wpThumbAt == null || wpThumbAt.length != wpFiles().length) wpThumbAt = new long[wpFiles().length];
+            boolean have = sm != null || t != null;
+            if (have && wpThumbAt[i] == 0) { wpThumbAt[i] = SystemClock.uptimeMillis(); invalidate(); }
+            float ea = !have ? 0 : Ui.clamp((SystemClock.uptimeMillis() - wpThumbAt[i]) / 250f);   // the image fades in over its empty frame
+            if (ea < 1) {
+                wpFill.setShader(null);
+                wpFill.setColor(Ui.alpha(0x33FFFFFF, alpha));
+                c.drawRoundRect(r, radius, radius, wpFill);
+            }
             if (sm != null) {   // clipped with the same corner radius the sample has, so nothing changes when one becomes the other
                 wpClip.reset();
                 wpClip.addRoundRect(r, radius, radius, android.graphics.Path.Direction.CW);
                 c.save();
                 c.clipPath(wpClip);
-                wpImg.setAlpha(Math.round(255 * alpha));
+                wpImg.setAlpha(Math.round(255 * alpha * ea));
                 c.drawBitmap(sm, null, r, wpImg);
                 wpImg.setAlpha(255);
                 c.restore();
             } else if (t != null) {
-                wpImg.setAlpha(Math.round(255 * alpha));
+                wpImg.setAlpha(Math.round(255 * alpha * ea));
                 c.drawBitmap(t, null, r, wpImg);
                 wpImg.setAlpha(255);
-            } else {
-                wpFill.setShader(null);
-                wpFill.setColor(Ui.alpha(0x33FFFFFF, alpha));
-                c.drawRoundRect(r, radius, radius, wpFill);
             }
             wpFill.setShader(null);
             wpFill.setStyle(Paint.Style.STROKE);
