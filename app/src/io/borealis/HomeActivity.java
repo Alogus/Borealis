@@ -89,8 +89,11 @@ public class HomeActivity extends Activity {
         Prefs.setUpdateAt(System.currentTimeMillis());   // so the next check does not undo it for a day
     }
 
+    /** The id of the news the modal tells now: it is shown once per id, not once per version. Change it only for news worth telling again. */
+    private static final String NEWS = "shelf-menu";
+
     private void markNoticeSeen() {
-        getSharedPreferences("notice", MODE_PRIVATE).edit().putString("seen", Update.installed(this)).apply();
+        getSharedPreferences("notice", MODE_PRIVATE).edit().putString("news", NEWS).putString("seen", Update.installed(this)).apply();
     }
 
     /** A modal over the home screen (see NoticeView). Does nothing while another one or the welcome is up. */
@@ -113,7 +116,10 @@ public class HomeActivity extends Activity {
         if (root == null || notice != null || onboarding != null || OnboardingView.pending(this)) return;
         if (splash != null && (splash.active() || splash.waiting())) return;
         String now = Update.installed(this);
-        if (now.isEmpty() || now.equals(getSharedPreferences("notice", MODE_PRIVATE).getString("seen", ""))) return;
+        android.content.SharedPreferences sp = getSharedPreferences("notice", MODE_PRIVATE);
+        if (now.isEmpty() || NEWS.equals(sp.getString("news", ""))) return;
+        String old = sp.getString("seen", "");   // from the versions that remembered it by version: seen from 3.44.0 on means seen
+        if (!old.isEmpty() && !Update.isNewer("3.44.0", old)) { markNoticeSeen(); return; }
         showNotice(true,
                 Ui.tr("Nova atualização · Versão ", "New update · Version ", "Nueva actualización · Versión ") + now,
                 Ui.tr("Personalize o seu estante de apps. ", "Make your app shelf yours. ", "Personaliza tu estante de apps. ")
