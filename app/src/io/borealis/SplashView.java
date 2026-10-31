@@ -28,6 +28,7 @@ final class SplashView extends View {
     private final boolean welcome;
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private boolean soundPlayed;
+    private final long born = SystemClock.uptimeMillis();
 
     SplashView(Context c, boolean waiting) { this(c, waiting, false); }
 
@@ -59,6 +60,16 @@ final class SplashView extends View {
     /** Playing (not waiting, not over): it takes the keys. */
     boolean active() { return start >= 0 && !finished; }
 
+    /** Playing for far longer than the opening lasts: it got stuck (its frames stopped), so it must not keep the keys. */
+    boolean stuck() {
+        if (finished || start < 0) return false;
+        long limit = (welcome ? WELCOME_HOLD : HOLD_UNTIL) + OUT_MS + 2500;
+        return SystemClock.uptimeMillis() - start > limit;
+    }
+
+    /** Waiting in front of the home for a long time. */
+    long waitedMs() { return start < 0 && !finished ? SystemClock.uptimeMillis() - born : 0; }
+
     /** Any key: leave now (a short fade). */
     void skip() {
         if (start >= 0 && skipAt < 0) skipAt = SystemClock.uptimeMillis();
@@ -80,7 +91,8 @@ final class SplashView extends View {
     private static float clamp(float v) { return Math.max(0f, Math.min(1f, v)); }
 
     @Override protected void onDraw(Canvas c) {
-        if (finished || w == 0) return;
+        if (finished) return;
+        if (w == 0) { postInvalidateOnAnimation(); return; }   // not measured yet: try again, never stop
         if (start < 0) {   // waiting: just the night black
             c.drawColor(Brand.INK);
             return;

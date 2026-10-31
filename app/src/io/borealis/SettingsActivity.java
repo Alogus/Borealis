@@ -772,6 +772,7 @@ public class SettingsActivity extends Activity {
             shadow.setColor(Ui.alpha(0xFF000000, 0.35f * f));
             c.drawRoundRect(tmp, r, r, shadow);
             tmp.offset(0, -8 * k * f);
+            c.drawRoundRect(tmp, r, r, pillPaint);   // the light pill stays underneath while the dark one comes in: no gap, no blink
             white.setColor(INK);
             white.setAlpha(Math.round(255 * f));
             c.drawRoundRect(tmp, r, r, white);
@@ -781,7 +782,7 @@ public class SettingsActivity extends Activity {
             ringPaint.setStyle(Paint.Style.STROKE);
             ringPaint.setStrokeWidth(ring);
             ringPaint.setShader(new LinearGradient(tmp.left, tmp.top, tmp.right, tmp.bottom, new int[] {LILY, PEACH, MELON}, null, Shader.TileMode.CLAMP));
-            ringPaint.setAlpha(Math.round(255 * f));
+            ringPaint.setAlpha(Math.round(255 * Ui.clamp(f * 2)));
             c.drawRoundRect(tmp2, r - half, r - half, ringPaint);
             ringPaint.setShader(null);
             rowRect.set(tmp);
@@ -2467,7 +2468,7 @@ public class SettingsActivity extends Activity {
                 ringPaint.setStyle(Paint.Style.STROKE);
                 ringPaint.setStrokeWidth(ring);
                 ringPaint.setShader(new LinearGradient(box.left, box.top, box.right, box.bottom, Brand.accents(), null, Shader.TileMode.CLAMP));
-                ringPaint.setAlpha(Math.round(255 * f));
+                ringPaint.setAlpha(Math.round(255 * Ui.clamp(f * 2)));
                 if (filled) {   // over the gradient fill the ring is white
                     ringPaint.setShader(null);
                     ringPaint.setColor(Ui.alpha(0xFFFFFFFF, f));
@@ -2490,7 +2491,9 @@ public class SettingsActivity extends Activity {
                 wpFill.setShader(new LinearGradient(box.left, box.top, box.right, box.bottom, Brand.accents(), null, Shader.TileMode.CLAMP));
             } else {
                 wpFill.setShader(null);
-                wpFill.setColor(blend(0x40FFFFFF, Brand.ink(0xFF), f));
+                wpFill.setColor(0x40FFFFFF);
+                c.drawRoundRect(box, r, r, wpFill);   // the light base stays while the dark comes over it: the pill never vanishes
+                wpFill.setColor(Ui.alpha(Brand.ink(0xFF), f));
             }
             c.drawRoundRect(box, r, r, wpFill);
             wpFill.setShader(null);
@@ -2504,7 +2507,7 @@ public class SettingsActivity extends Activity {
                     ringPaint.setColor(Ui.alpha(0xFFFFFFFF, f));
                 } else {
                     ringPaint.setShader(new LinearGradient(box.left, box.top, box.right, box.bottom, Brand.accents(), null, Shader.TileMode.CLAMP));
-                    ringPaint.setAlpha(Math.round(255 * f));
+                    ringPaint.setAlpha(Math.round(255 * Ui.clamp(f * 2)));
                 }
                 c.drawRoundRect(in, r - half, r - half, ringPaint);
                 ringPaint.setShader(null);
@@ -2545,7 +2548,7 @@ public class SettingsActivity extends Activity {
                 ringPaint.setStyle(Paint.Style.STROKE);
                 ringPaint.setStrokeWidth(ring);
                 ringPaint.setShader(new LinearGradient(tmp.left, tmp.top, tmp.right, tmp.bottom, new int[] {LILY, PEACH, MELON}, null, Shader.TileMode.CLAMP));
-                ringPaint.setAlpha(Math.round(255 * f));
+                ringPaint.setAlpha(Math.round(255 * Ui.clamp(f * 2)));
                 c.drawRoundRect(tmp2, r - half, r - half, ringPaint);
                 ringPaint.setShader(null);
             }

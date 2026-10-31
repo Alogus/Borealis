@@ -177,6 +177,16 @@ public class HomeActivity extends Activity {
             int kc = event.getKeyCode();
             if (kc != KeyEvent.KEYCODE_VOLUME_UP && kc != KeyEvent.KEYCODE_VOLUME_DOWN && kc != KeyEvent.KEYCODE_VOLUME_MUTE) return true;
         }
+        // A safety net: an opening that got stuck (or one still waiting while the screen is on and someone is pressing keys) must not hold the remote.
+        if (splash != null && event.getAction() == KeyEvent.ACTION_DOWN) {
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            boolean on = pm == null || pm.isInteractive();
+            if (splash.stuck() || (on && splash.waiting() && splash.waitedMs() > 2500)) {
+                Diag.event("splash released by a key: " + (splash.waiting() ? "waiting " + splash.waitedMs() + " ms" : "stuck"));
+                final SplashView stale = splash;
+                stale.dismiss();
+            }
+        }
         if (splash != null && splash.active()) {   // any key leaves the opening (and is not passed on)
             if (event.getAction() == KeyEvent.ACTION_DOWN) splash.skip();
             return true;
