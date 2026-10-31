@@ -575,17 +575,28 @@ public class SettingsActivity extends Activity {
             profilePop.step(dt);
             blinkSpring.step(dt);
             if (screen == WALLPAPERS) {
+                if (wpHold) {
+                    if (wpSnap != null && !wpReady() && SystemClock.uptimeMillis() - wpHoldAt < 500) {
+                        c.drawBitmap(wpSnap, 0, 0, null);   // the old screen, still, while the new one loads
+                        invalidate();
+                        return;
+                    }
+                    wpRelease();
+                    wpIn.step(dt);
+                }
                 float in = Ui.clamp(wpIn.value);
                 if (in >= 0.995f) {
+                    dropSnapshot();
                     drawWallpapers(c, dt);
-                } else {   // coming in: the settings' own backdrop, and the picker fading in over it
-                    drawBackground(c);
+                } else {   // coming in: the old screen dissolves into the new one, once, all together
+                    if (wpSnap != null) c.drawBitmap(wpSnap, 0, 0, null); else drawBackground(c);
                     int layer = c.saveLayerAlpha(0, 0, w, h, Math.round(255 * in));
                     drawWallpapers(c, dt);
                     c.restoreToCount(layer);
                 }
                 return;
             }
+            if (wpSnap != null) dropSnapshot();
             long up = SystemClock.uptimeMillis();
             float seconds = (up - startedAt) / 1000f;
             if (up - lastSky >= 100) {
@@ -1748,7 +1759,7 @@ public class SettingsActivity extends Activity {
         private int wpRow;                        // 0 the carousel, 1 the row below it (the times and "Preview", or "Hide elements")
         private int wpPill;                       // in that row: 0-3 a time, 4 the button at the right
         private final Spring wpBackPop = new Spring(0.28f, 0.85f, 0);
-        private final Spring wpIn = new Spring(0.55f, 1f, 1);
+        private final Spring wpIn = new Spring(0.32f, 1f, 1);
         private final Spring wpCarPop = new Spring(0.28f, 0.85f, 0);   // the ring around the sample when the carousel has the focus
         private final Spring[] wpPillPop = {new Spring(0.28f, 0.85f, 0), new Spring(0.28f, 0.85f, 0), new Spring(0.28f, 0.85f, 0), new Spring(0.28f, 0.85f, 0), new Spring(0.28f, 0.85f, 0)};   // 4 times + the button at the right
         private static final float BACKDROP_ALPHA = 0.8f;
@@ -1767,8 +1778,61 @@ public class SettingsActivity extends Activity {
                 private final android.graphics.Path wpClip = new android.graphics.Path();
 
         private boolean wpFromMain;
+        // Remembered between visits (small), so coming back is immediate.
+        private static Bitmap wpFullCache;
+        private static int wpFullCacheIdx = -1;
+        private static boolean wpFullCacheSaver;
+        private static final Bitmap[][] CACHE_THUMB = new Bitmap[2][], CACHE_SMALL = new Bitmap[2][], CACHE_BLUR = new Bitmap[2][];
+        private static Bitmap[] tilesCache;
+        private static int pinnedCache;
+        private Bitmap wpSnap;                        // the screen we came from, kept still until the new one has everything it needs
+        private boolean wpHold;
+        private long wpHoldAt;
+
+        /** A still of what is on screen now (null if there is no memory for it). */
+        private Bitmap takeSnapshot() {
+            if (w <= 0 || h <= 0) return null;
+            try {
+                Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                draw(new Canvas(b));
+                return b;
+            } catch (RuntimeException | OutOfMemoryError e) {
+                return null;
+            }
+        }
+
+        private void dropSnapshot() {
+            Bitmap b = wpSnap;
+            wpSnap = null;
+            wpHold = false;
+            if (b != null) b.recycle();
+        }
+
+        /** Everything the new screen draws is loaded: the front picture and its backdrop, its two neighbors, and the shelf. */
+        private boolean wpReady() {
+            int n = wpFiles().length;
+            if (n == 0 || focus < 0 || focus >= n) return true;
+            if (wpBlurs == null || wpSmall == null || wpFull == null) return false;
+            int a = Math.floorMod(focus - 1, n), b = (focus + 1) % n;
+            if (wpBlurs[focus] == null || wpFull[focus] == null) return false;
+            if (wpSmall[focus] == null || wpSmall[a] == null || wpSmall[b] == null) return false;
+            return wpSaver || wpTiles != null;
+        }
+
+        /** The hold is over: from here everything is already loaded, so nothing fades on its own: one fade for the whole screen. */
+        private void wpRelease() {
+            wpHold = false;
+            long long_ago = 1;   // any non-zero time far in the past counts as "already faded in"
+            if (wpThumbAt != null) for (int i = 0; i < wpThumbAt.length; i++) if (wpSmall != null && i < wpSmall.length && wpSmall[i] != null) wpThumbAt[i] = long_ago;
+            wpToLast = wpBlurs != null && focus >= 0 && focus < wpBlurs.length ? wpBlurs[focus] : null;
+            wpToAt = 0;
+            wpIn.snap(0);
+            wpIn.target = 1;
+        }
 
         private void openWallpapers(boolean saver, boolean fromMain) {
+            dropSnapshot();
+            wpSnap = takeSnapshot();
             wpSaver = saver;
             wpFromMain = fromMain;
             if (saver) wpSaverCurrent = Prefs.screensaver();
@@ -1786,10 +1850,10 @@ public class SettingsActivity extends Activity {
             wpCarPop.snap(0);
             HomeData.get(getContext()).refreshIfStale();
             wpBackPop.snap(0);
-            wpIn.snap(0);
-            wpIn.target = 1;
+            wpIn.snap(0);   // stays at 0 while the old screen is held; wpRelease() starts the one fade
+            if (wpSnap != null) { wpHold = true; wpHoldAt = SystemClock.uptimeMillis(); } else wpIn.target = 1;
             for (Spring sp : wpPillPop) sp.snap(0);
-            wpPool = java.util.concurrent.Executors.newSingleThreadExecutor();
+            wpPool = java.util.concurrent.Executors.newFixedThreadPool(2);   // the front picture and the shelf load next to the thumbnails, not after them
             int n = wpFiles().length;
             wpFull = new Bitmap[n];
             wpFullAt = new long[n];
@@ -1797,9 +1861,14 @@ public class SettingsActivity extends Activity {
             wpToLast = null;
             wpToAt = 0;
             wpPending = new boolean[n];
-            loadThumbs();
-            wantFull(focus);
+            if (wpFullCache != null && !wpFullCache.isRecycled() && wpFullCacheSaver == wpSaver && wpFullCacheIdx == focus && focus < n) {
+                wpFull[focus] = wpFullCache;   // the picture in use was seen a moment ago: no wait
+                wpFullAt[focus] = 1;
+            }
+            wantFull(focus, true);   // first the picture in front and the shelf; then the thumbnails; the neighbors a little later
             loadTiles();
+            loadThumbs();
+            handler.postDelayed(() -> { if (wpPool != null && wpFull != null && screen == WALLPAPERS) wantFull(focus); }, 350);
             spoken.focusMoved();
             scheduleLive();
         }
@@ -1892,7 +1961,8 @@ public class SettingsActivity extends Activity {
         private void loadTiles() {
             final java.util.concurrent.ExecutorService pool = wpPool;
             if (wpSaver || pool == null) return;
-            wpTiles = null;
+            wpTiles = tilesCache;   // the last ones, at once; fresh ones replace them when ready
+            wpPinned = pinnedCache;
             pool.execute(() -> {
                 List<HomeApps.Item> row1 = new ArrayList<>(), row2 = new ArrayList<>();
                 try {
@@ -1915,6 +1985,8 @@ public class SettingsActivity extends Activity {
                     if (wpPool == pool) {
                         wpTiles = out;
                         wpPinned = pinned;
+                        tilesCache = out;
+                        pinnedCache = pinned;
                         invalidate();
                     }
                 });
@@ -1950,8 +2022,13 @@ public class SettingsActivity extends Activity {
         }
 
         private void loadThumbs() {
-            final int n = wpFiles().length;
-            final Bitmap[] mine = new Bitmap[n], small = new Bitmap[n], blurs = new Bitmap[n];
+            final int n = wpFiles().length, kind = wpSaver ? 1 : 0;
+            if (CACHE_THUMB[kind] == null || CACHE_THUMB[kind].length != n) {
+                CACHE_THUMB[kind] = new Bitmap[n];
+                CACHE_SMALL[kind] = new Bitmap[n];
+                CACHE_BLUR[kind] = new Bitmap[n];
+            }
+            final Bitmap[] mine = CACHE_THUMB[kind], small = CACHE_SMALL[kind], blurs = CACHE_BLUR[kind];
             wpThumb = mine;
             wpSmall = small;
             wpBlurs = blurs;
@@ -1961,8 +2038,10 @@ public class SettingsActivity extends Activity {
             final java.util.concurrent.ExecutorService pool = wpPool;
             pool.execute(() -> {
                 for (int q = 0; q < n; q++) {
-                    int i = (start + q) % n;   // the one in front first
+                    // The one in front first, then its two neighbors (what the screen needs to show), then the rest.
+                    int i = n >= 3 && q == 1 ? (start + 1) % n : n >= 3 && q == 2 ? Math.floorMod(start - 1, n) : n >= 3 && q >= 3 ? (start + q - 1) % n : (start + q) % n;
                     if (wpThumb != mine) return;
+                    if (mine[i] != null) continue;   // kept from the last visit
                     Bitmap b = decodeWallpaper(wpFiles()[i], Integer.highestOneBit(Math.max(1, 1920 / (tw * 2))), 0);
                     if (b == null) continue;
                     Bitmap sm = Bitmap.createScaledBitmap(b, tw, th, true);
@@ -2003,7 +2082,9 @@ public class SettingsActivity extends Activity {
         }
 
         /** Keeps the sharp pictures of item `idx` and its two neighbors (so the next turn of the carousel never waits for a decode). */
-        private void wantFull(final int idx) {
+        private void wantFull(final int idx) { wantFull(idx, false); }
+
+        private void wantFull(final int idx, final boolean frontOnly) {
             final java.util.concurrent.ExecutorService pool = wpPool;
             final Bitmap[] mine = wpFull;
             if (pool == null || mine == null) return;
@@ -2013,7 +2094,8 @@ public class SettingsActivity extends Activity {
                 int dd = Math.floorMod(i - idx, n);
                 if (dd > 1 && dd < n - 1) mine[i] = null;   // far away: let it go
             }
-            for (int d = -1; d <= 1; d++) {
+            for (int d : new int[] {0, 1, -1}) {
+                if (frontOnly && d != 0) continue;
                 final int i = Math.floorMod(idx + d, n);
                 if (mine[i] != null || wpPending[i]) continue;
                 wpPending[i] = true;
@@ -2024,6 +2106,7 @@ public class SettingsActivity extends Activity {
                         if (wpPool != pool || wpFull != mine || b == null) return;
                         mine[i] = b;
                         wpFullAt[i] = SystemClock.uptimeMillis();
+                        if (i == wpCurrent()) { wpFullCache = b; wpFullCacheIdx = i; wpFullCacheSaver = wpSaver; }
                         invalidate();
                     });
                 });
