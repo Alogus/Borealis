@@ -220,6 +220,10 @@ public class SettingsActivity extends Activity {
                     JSONObject newest = notices.optJSONObject(0);
                     if (newest != null) announceForAccessibility(newest.optString("text"));
                 }
+                // A switch ended with no ADB on the TV (plan B): open the system's accessibility screen so the person can turn Borealis on.
+                if (wasBusy && !nowBusy && state.optBoolean("soft") && !freeActive() && !remoteButtonOn()) {
+                    openAccessibilityScreen(getContext());
+                }
                 wasBusy = nowBusy;
                 invalidate();
                 handler.postDelayed(this, 500);
@@ -389,7 +393,7 @@ public class SettingsActivity extends Activity {
                     if (ids[row] == ID_LAUNCHER) {
                         String busyText = state.optString("busy");
                         String value = busy() ? (busyText.isEmpty() ? Ui.tr("Começando…", "Starting…") : busyText)
-                                : freeActive() ? "Borealis" : Ui.tr("Original", "Original");
+                                : homeName();
                         return groupLabel(ids[row]) + ", " + value;
                     }
                     return groupLabel(ids[row]) + (groupValue(ids[row]).isEmpty() ? "" : ", " + groupValue(ids[row]));
@@ -397,7 +401,7 @@ public class SettingsActivity extends Activity {
                 case HOME_CHOICE: {
                     String name = row == 0 ? "Borealis, " + Ui.tr("sem anúncios, com a tela de descanso nova", "no ads, with the new screensaver")
                             : "Original, " + Ui.tr("o Início de fábrica da TV", "the TV's factory home screen");
-                    boolean inUse = (row == 0) == freeActive();
+                    boolean inUse = (row == 0) == homeIsBorealis();
                     return name + (inUse ? Ui.tr(". Em uso", ". In use") : "") + ", " + (row + 1) + Ui.tr(" de 2", " of 2");
                 }
                 case HOME_SETTINGS:
@@ -532,6 +536,16 @@ public class SettingsActivity extends Activity {
 
         private boolean busy() {
             return !state.optString("busy").isEmpty() || (pendingAt != 0 && SystemClock.uptimeMillis() - pendingAt < 10_000);
+        }
+
+        /** Borealis is the home screen: through ADB (Borealis mode) or, with no ADB, through the accessibility service (soft Home). */
+        private boolean homeIsBorealis() {
+            return freeActive() || (state.optBoolean("soft") && remoteButtonOn());
+        }
+
+        private String homeName() {
+            if (freeActive()) return "Borealis";
+            return homeIsBorealis() ? "Borealis (" + Ui.tr("Início suave", "soft Home", "Inicio suave") + ")" : Ui.tr("Original", "Original");
         }
 
         private boolean freeActive() {
@@ -670,7 +684,7 @@ public class SettingsActivity extends Activity {
         private void drawMain(Canvas c, float seconds) {
             boolean working = busy();
             String busyText = state.optString("busy");
-            String mode = freeActive() ? "Borealis" : Ui.tr("Original", "Original");
+            String mode = homeName();
             final int[] ids = groupIds();
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
             c.drawText(Ui.tr("Sistema", "System", "Sistema"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
@@ -707,7 +721,7 @@ public class SettingsActivity extends Activity {
                 c.drawText(Ui.tr("Na TV: marque “Sempre permitir” e aperte OK.", "On the TV: tick “Always allow” and press OK."),
                         LIST_X * k + 30 * k, y, warn);
                 y += 46 * k;
-            } else if (!working && !error.isEmpty()) {
+            } else if (!working && !error.isEmpty() && !(state.optBoolean("soft") && remoteButtonOn())) {
                 // The whole message, on up to five lines: some say what to do (the Wi-Fi one, #14).
                 int width = Math.round(760 * k);
                 if (errorLayout == null || !error.equals(errorShown) || errorLayout.getWidth() != width) {
@@ -842,7 +856,7 @@ public class SettingsActivity extends Activity {
             c.drawText(Ui.tr("Início", "Home Screen"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             String[][] options = {{"Borealis", Ui.tr("Sem anúncios, com a tela de descanso nova", "No ads, with the new screensaver")},
                     {"Original", Ui.tr("O Início de fábrica da TV", "The TV's factory home screen")}};
-            int current = freeActive() ? 0 : 1;
+            int current = homeIsBorealis() ? 0 : 1;
             for (int i = 0; i < 2; i++) {
                 float y = (LIST_TOP + 20 + i * (CHOICE_H + ROW_GAP)) * k;
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + CHOICE_H * k);
@@ -1139,7 +1153,7 @@ public class SettingsActivity extends Activity {
                             : Ui.tr("Nova versão ", "New version ", "Nueva versión ") + newer;
                 }
                 case ID_UPDATE_AUTO: return onOff(Prefs.updateAuto());
-                case ID_LAUNCHER: return freeActive() ? "Borealis" : "Original";
+                case ID_LAUNCHER: return homeName();
                 default: return settingValues()[id];
             }
         }
@@ -3147,7 +3161,7 @@ public class SettingsActivity extends Activity {
             }
             if (screen == HOME_CHOICE) {
                 boolean wantFree = focus == 0;
-                if (wantFree != freeActive() && !busy()) {
+                if (wantFree != homeIsBorealis() && !busy()) {
                     HomeMode.request(c, wantFree ? HomeMode.FREE : HomeMode.ORIGINAL);
                     pendingAt = SystemClock.uptimeMillis();
                 }
@@ -3207,7 +3221,7 @@ public class SettingsActivity extends Activity {
                 } else if (id == ID_LAUNCHER) {
                     if (busy()) return;
                     screen = HOME_CHOICE;
-                    focus = freeActive() ? 0 : 1;
+                    focus = homeIsBorealis() ? 0 : 1;
                 } else if (id == ID_WELCOME) {
                     OnboardingView.repeat(c);
                     activity.goHomeSoftly();

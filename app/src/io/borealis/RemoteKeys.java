@@ -3,6 +3,7 @@ package io.borealis;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
+import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 
@@ -14,6 +15,9 @@ import android.view.KeyEvent;
  */
 final class RemoteKeys {
     private RemoteKeys() {}
+
+    private static long lastSoftHome;
+    private static boolean softThrough;
 
     /** The key codes are TCL's: on other brands they can be other buttons, so nothing here runs there. */
     static boolean supported() {
@@ -37,6 +41,21 @@ final class RemoteKeys {
                 if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) open.runOnUiThread(open::goHomeSoftly);
                 return true;
             }
+        }
+        // Soft Home (no ADB on this TV): Home opens Borealis. Two presses within 0.7 s let the TV's own Home through (the way out).
+        if (e.getKeyCode() == KeyEvent.KEYCODE_HOME && HomeMode.soft(c) && !HomeMode.isFree(c)) {
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+                long now = SystemClock.uptimeMillis();
+                boolean twice = now - lastSoftHome < 700;
+                lastSoftHome = twice ? 0 : now;
+                softThrough = twice;
+                if (!twice) {
+                    AppLog.w("soft Home -> Borealis");
+                    c.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                            .setPackage(HomeMode.PKG).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                }
+            }
+            return !softThrough;
         }
         if (isSettingsButton(e)) {
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
