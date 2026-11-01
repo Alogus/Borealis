@@ -6,7 +6,7 @@ You need: your TV (Google TV or Android TV), a computer on the same Wi-Fi, and t
 
 ## Easiest way (English): no computer for the install / La forma más fácil (Español)
 
-> Beta: tested on one TV (Android TV 11) and by a few people on other TVs. / Beta: probado en una TV (Android TV 11) y por algunas personas en otras TVs.
+> Beta: tested on Android TV 11 and 14 (TCL, Onn and others). / Beta: probado en Android TV 11 y 14 (TCL, Onn y otras).
 
 **English.** 1) On the TV, install the free app **Downloader** (by AFTVnews) from the app store. 2) Allow it to install apps:
 Settings → Apps → Security & restrictions → Unknown sources → Downloader on. 3) Open Downloader and type the code **3357424** → Go → Install. 4) Turn on developer mode and
@@ -59,10 +59,14 @@ Si algo falla, abre un "issue" en la página del proyecto contando qué viste.
 - **"Google Play Protect blocked the app".** Play Protect distrusts apps that don't come from the store. On the TV: Google Play Store → your profile picture → *Play Protect* → settings (gear) → turn off *Scan apps with Play Protect*, install Borealis again, then turn it back on. Menus change by brand; if you see *Install anyway* or *More details*, use that.
 - **"Couldn't turn on Borealis: debugging is off on the TV (port 5555 closed)".** Check *USB debugging* is on (not *Wireless debugging*). If your TV still keeps the port closed, use **Plan B**: Settings → Accessibility → Borealis → on. The Home button then opens Borealis. Or open the port once from a computer: `adb connect IP:5555` then `adb tcpip 5555`.
 - **Can't turn Borealis on in Accessibility (Android 13/14).** Android blocks the accessibility of apps installed from outside the store ("Restricted setting"). Go to Settings → Apps → Borealis → menu (⋮) → *Allow restricted settings*, then try again. From a computer: `adb shell cmd appops set io.borealis ACCESS_RESTRICTED_SETTINGS allow`.
+- **"Allow USB debugging?" never appears.** Developer options → *Revoke USB debugging authorizations*, then open Borealis again. If it still does not appear, Borealis switches to Plan B by itself.
+- **Plan B (no computer).** Turn Borealis on in Settings → Accessibility. Pressing Home opens Borealis; press it twice quickly to open the TV's own home screen.
 - **"The TV's first setup saved the Wi-Fi".** Settings → Network & Internet → forget your network, connect again, and try once more.
 
 **Español**
 - **"Google Play Protect bloqueó la app".** Play Protect desconfía de las apps que no vienen de la tienda. En la TV: Google Play Store → tu foto de perfil → *Play Protect* → ajustes (engranaje) → apaga *Analizar apps con Play Protect*, instala Borealis otra vez y vuelve a encenderlo. Los menús cambian según la marca; si ves *Instalar de todos modos* o *Más detalles*, usa esa opción.
 - **"No se pudo activar Borealis: la depuración del TV está apagada (puerto 5555)".** Revisa que esté encendida la *Depuración USB* (no la *Depuración inalámbrica*). Si tu TV sigue con el puerto cerrado, usa el **Plan B**: Ajustes → Accesibilidad → Borealis → activado. El botón Home abrirá Borealis. O abre el puerto una vez desde un computador: `adb connect IP:5555` y luego `adb tcpip 5555`.
 - **No puedo activar Borealis en Accesibilidad (Android 13/14).** Android bloquea la accesibilidad de las apps instaladas fuera de la tienda ("Configuración restringida"). Ve a Ajustes → Aplicaciones → Borealis → menú (⋮) → *Permitir ajustes restringidos* y vuelve a intentar. Desde un computador: `adb shell cmd appops set io.borealis ACCESS_RESTRICTED_SETTINGS allow`.
+- **Nunca aparece "¿Permitir depuración USB?".** Opciones para desarrolladores → *Revocar autorizaciones de depuración USB* y abre Borealis de nuevo. Si sigue sin aparecer, Borealis pasa solo al Plan B.
+- **Plan B (sin computador).** Activa Borealis en Ajustes → Accesibilidad. El botón Inicio abre Borealis; presiónalo dos veces rápido para abrir el inicio propio de la TV.
 - **"La configuración inicial del TV guardó el Wi-Fi".** Ajustes → Red e Internet → olvida tu red, vuelve a conectarte y vuelve a intentarlo.

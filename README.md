@@ -7,7 +7,7 @@ in your language (Español, English, Português). Designed and developed by **Al
 
 <p align="center"><img src="screenshots/home.jpg" alt="Borealis home screen" width="100%"></p>
 
-> Beta. Tested so far on one TV (Android TV 11, 1280×720). Use it with care and tell me what you find.
+> Beta. Tested on Android TV 11 and 14 (TCL, Onn and others), see [Compatibility](#compatibility). Use it with care and tell me what you find.
 
 <table>
   <tr>
@@ -30,6 +30,9 @@ A one-minute welcome sets up your language, your name, your home screen and "Con
 
 ## What it does
 - A calm home screen with your apps, a shelf you can arrange, the weather and the time.
+- **Your shelf, your way**: hold **OK** on a shelf app to *move*, *remove* or *hide* it. Hidden apps wait at the end of *All apps*, where you can bring them back.
+- **Quiet when you want**: turn the click sounds off in Settings.
+- **Updates inside the app**: a bell tells you when a new version is out, and *What's new* explains each change.
 - **Continue watching**: pick up what you left half-watched in your apps, or discover movies and shows (TMDB).
 - A screensaver and wallpapers, a welcome that sets everything up in a minute, and your own avatar.
 - Fast on modest TVs: it is drawn directly, no heavy libraries.
@@ -42,6 +45,26 @@ Download `Borealis.apk` from [Releases](../../releases), or on the TV open **Dow
 **Updates without technical steps:** after the first install, Borealis tells you when a new version is out. Choose *Settings → System → Updates*, press **Install** and accept: no computer, no extra app.
 
 You can go back any time: in Borealis's settings choose **Original** and the TV's own home screen returns.
+
+**USB debugging is recommended.** With it, Borealis becomes your home screen for real. If your TV does not allow it (the port is closed, or the *Allow USB debugging?* question never appears), Borealis switches to **Plan B** (experimental, no computer): in Settings → Accessibility turn on Borealis and the Home button opens it; press Home twice quickly to open the TV's own home screen.
+
+## Compatibility
+Reports from real TVs (Android TV / Google TV):
+
+| TV | Android | Result |
+|---|---|---|
+| Challenger (Realtek) | 11 | Full mode |
+| TCL 50Q6K | 14 | Full mode (installed with Downloader, debugging on) |
+| Onn 4K Streaming Box | 14 | Plan B (the Wi-Fi blocks changing the home screen) |
+| Other TCL / Hisense TVs | 11 | Being tested, reports welcome |
+
+Untested: Fire TV, VIDAA, webOS and Tizen are not supported yet. Tell us in an [issue](../../issues) which TV you have and what you saw.
+
+## Troubleshooting
+- **"Allow USB debugging?" never appears.** On the TV: Developer options → *Revoke USB debugging authorizations*, then open Borealis again. If it still does not appear, Borealis switches to Plan B by itself.
+- **The Wi-Fi disappears when changing the home screen.** Some TVs delete the Wi-Fi networks saved by their setup app when it is turned off. Borealis detects this and keeps the original launcher on (Plan B) so you do not lose the connection.
+- **Can't turn Borealis on in Accessibility (Android 13/14).** Settings → Apps → Borealis → ⋮ → *Allow restricted settings*.
+- More in [INSTALL.md](INSTALL.md) and the [CHANGELOG](CHANGELOG.md).
 
 ## Build it yourself
 Needs a JDK 17+ and the Android SDK command-line tools (build-tools 34+, platform android-34).
@@ -77,7 +100,7 @@ GitHub may show "MIT licenses found" because the original Free My TV code keeps 
 
 **[⬇ Descarga la última versión](../../releases/latest)** · o en la TV abre **Downloader** y escribe **3357424**
 
-> Beta. Probado hasta ahora en una sola TV (Android TV 11, 1280×720). Úsalo con cuidado y cuéntame qué encuentras.
+> Beta. Probado en Android TV 11 y 14 (TCL, Onn y otras), mira [Compatibilidad](#compatibilidad). Úsalo con cuidado y cuéntame qué encuentras.
 
 <table>
   <tr>
@@ -100,6 +123,9 @@ Una bienvenida de un minuto configura tu idioma, tu nombre, tu pantalla de inici
 
 ## Qué hace
 - Una pantalla de inicio tranquila con tus apps, un estante que organizas, el clima y la hora.
+- **Tu estante, a tu manera**: mantén **OK** sobre una app del estante para *moverla*, *quitarla* u *ocultarla*. Las apps ocultas quedan al final de *Todas las apps*, y desde ahí las puedes mostrar de nuevo.
+- **Silencio cuando quieras**: apaga el sonido de los clics en Ajustes.
+- **Actualizaciones dentro de la app**: una campana te avisa cuando hay una versión nueva, y *Novedades* te cuenta cada cambio.
 - **Continuar viendo**: retoma lo que dejaste a medias en tus apps, o descubre películas y series (TMDB).
 - Protector de pantalla y fondos, una bienvenida que lo configura todo en un minuto, y tu propio avatar.
 - Rápido en TVs modestas: se dibuja directamente, sin librerías pesadas.
@@ -112,6 +138,26 @@ Descarga `Borealis.apk` desde [Releases](../../releases), o en la TV abre **Down
 **Actualizaciones sin pasos técnicos:** después de la primera instalación, Borealis te avisa cuando hay una versión nueva. Elige *Configuración → Sistema → Actualizaciones*, pulsa **Instalar** y acepta: sin computador y sin otra app.
 
 Puedes volver atrás cuando quieras: en los ajustes de Borealis elige **Original** y vuelve el inicio de tu TV.
+
+**La depuración USB es lo recomendado.** Con ella, Borealis se vuelve tu pantalla de inicio de verdad. Si tu TV no la permite (el puerto está cerrado o nunca aparece la pregunta *¿Permitir depuración USB?*), Borealis pasa al **Plan B** (experimental, sin computador): en Ajustes → Accesibilidad activa Borealis y el botón Inicio lo abre; presiona Inicio dos veces rápido para abrir el inicio propio de la TV.
+
+## Compatibilidad
+Reportes de TVs reales (Android TV / Google TV):
+
+| TV | Android | Resultado |
+|---|---|---|
+| Challenger (Realtek) | 11 | Modo completo |
+| TCL 50Q6K | 14 | Modo completo (instalada con Downloader, depuración activa) |
+| Onn 4K Streaming Box | 14 | Plan B (el Wi-Fi bloquea el cambio de inicio) |
+| Otras TCL / Hisense | 11 | En pruebas, se agradecen reportes |
+
+Sin soporte todavía: Fire TV, VIDAA, webOS y Tizen. Cuéntanos en un [issue](../../issues) qué TV tienes y qué viste.
+
+## Problemas comunes
+- **Nunca aparece "¿Permitir depuración USB?".** En la TV: Opciones para desarrolladores → *Revocar autorizaciones de depuración USB* y abre Borealis de nuevo. Si sigue sin aparecer, Borealis pasa solo al Plan B.
+- **El Wi-Fi desaparece al cambiar el inicio.** Algunas TVs borran las redes Wi-Fi guardadas por su app de configuración cuando se apaga. Borealis lo detecta y deja encendido el launcher original (Plan B) para que no pierdas la conexión.
+- **No puedo activar Borealis en Accesibilidad (Android 13/14).** Ajustes → Aplicaciones → Borealis → ⋮ → *Permitir ajustes restringidos*.
+- Más en [INSTALL.md](INSTALL.md) y el [CHANGELOG](CHANGELOG.md).
 
 ## Mantenimiento y soporte
 Borealis lo mantiene su autor. Espera actualizaciones con el tiempo: correcciones, pequeñas mejoras y soporte para
