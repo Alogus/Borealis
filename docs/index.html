@@ -71,6 +71,10 @@ details p{color:var(--mut);margin-top:10px;font-size:15px}
 .sp{text-align:center;max-width:640px;margin:0 auto}
 .sp h2{font-size:clamp(32px,4.4vw,50px);margin-bottom:14px}
 .sp p{color:var(--mut);margin-bottom:26px}
+.fab{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));z-index:6;display:flex;align-items:center;gap:8px;background:linear-gradient(90deg,var(--l),var(--p),var(--m));color:var(--n);font:700 15px Montserrat,system-ui,sans-serif;text-decoration:none;border-radius:99px;padding:12px 20px;box-shadow:0 10px 30px #00000066;transition:opacity .3s,transform .3s}
+.fab.off{opacity:0;transform:translateY(12px);pointer-events:none;visibility:hidden}
+.fab:focus-visible{outline:3px solid var(--w);outline-offset:3px}
+@media(prefers-reduced-motion:reduce){.fab{transition:none}}
 footer{border-top:1px solid var(--line);padding:36px 0 50px;color:var(--mut);font-size:14px}
 footer p{margin-bottom:8px}
 footer .links{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px}
@@ -152,6 +156,7 @@ footer .links{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px}
 <a class="btn" href="https://github.com/sponsors/Alogus"><span class="t" data-en="Support on GitHub Sponsors">Apoyar en GitHub Sponsors</span></a>
 </div></section>
 </main>
+<a class="fab" id="fab" href="https://github.com/sponsors/Alogus"><span aria-hidden="true">♥</span><span class="t" data-en="Support">Apoyar</span></a>
 <footer><div class="wrap">
 <p><span class="t" data-en="Designed and developed by &lt;b&gt;Alogus Tov&lt;/b&gt;. Based on &lt;a href=&quot;https://github.com/simbasjungles/free-my-tv&quot;&gt;Free My TV&lt;/a&gt; (MIT).">Diseñado y desarrollado por <b>Alogus Tov</b>. Basado en <a href="https://github.com/simbasjungles/free-my-tv">Free My TV</a> (MIT).</span></p><p><span class="t" data-en="Uses the TMDB API; not endorsed or certified by TMDB.">Usa la API de TMDB; sin respaldo ni certificación de TMDB.</span></p><p><span class="t" data-en="Free for noncommercial use (PolyForm Noncommercial 1.0.0).">Gratis para uso no comercial (PolyForm Noncommercial 1.0.0).</span></p>
 <div class="links"><a href="https://github.com/Alogus/Borealis">GitHub</a><a href="https://github.com/Alogus/Borealis/blob/main/PRIVACY.md"><span class="t" data-en="Privacy">Privacidad</span></a><a href="https://github.com/Alogus/Borealis/blob/main/NOTICE.md"><span class="t" data-en="Notices and trademarks">Avisos y marcas</span></a><a href="https://github.com/Alogus/Borealis/issues"><span class="t" data-en="Report a problem">Reportar un problema</span></a></div>
@@ -167,6 +172,8 @@ var s=null;try{s=localStorage.getItem("bl")}catch(e){}
 if(!s)s=(navigator.language||"es").slice(0,2)==="es"||(navigator.language||"").slice(0,2)==="pt"?"es":"en";
 if(s!=="es")set(s);
 document.getElementById("lang").onclick=function(){set(L==="es"?"en":"es")};
+var fab=document.getElementById("fab"),sup=document.getElementById("support");
+if(fab&&sup&&"IntersectionObserver" in window){new IntersectionObserver(function(es){fab.classList.toggle("off",es[0].isIntersecting)},{threshold:0.35}).observe(sup)}
 var c=document.getElementById("copy");
 c.onclick=function(){var o=c.querySelector(".t");try{navigator.clipboard.writeText(c.dataset.c)}catch(e){}o.innerHTML=L==="es"?"¡Copiado!":"Copied!";setTimeout(function(){o.innerHTML=o.dataset[L]},1500)};
 
