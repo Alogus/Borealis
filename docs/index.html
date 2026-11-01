@@ -54,10 +54,14 @@ section{padding:70px 0}
 .card p{color:var(--mut);font-size:15px}
 .dot{width:12px;height:12px;border-radius:50%;margin-bottom:16px;background:var(--c)}
 .shots{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+.shots figure:last-child:nth-child(odd){grid-column:1/-1;width:calc(50% - 9px);justify-self:center}
+@media(max-width:560px){.shots figure:last-child:nth-child(odd){width:auto}}
 figure img{width:100%;height:auto;display:block;border-radius:14px;border:1px solid var(--line)}
 figcaption{color:var(--mut);font-size:14px;margin-top:8px;text-align:center}
 .ob{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 .ob figure img{border-radius:10px}
+.ob figure:last-child:nth-child(3n+1){grid-column:2}
+@media(max-width:860px){.ob figure:last-child:nth-child(3n+1){grid-column:auto}}
 .steps{max-width:720px;margin:0 auto;display:grid;gap:12px;counter-reset:s;list-style:none;padding:0}
 .steps li{counter-increment:s;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 20px 18px 66px;position:relative;font-size:16px}
 .steps li:before{content:counter(s);position:absolute;left:18px;top:14px;width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--l),var(--p));color:var(--n);font:700 16px/34px Montserrat;text-align:center}
@@ -120,6 +124,11 @@ footer .links{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px}
 <figure><img loading="lazy" src="img/wallpapers.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Wallpapers">Fondos de pantalla</span></figcaption></figure>
 <figure><img loading="lazy" src="img/screensaver.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Screensaver">Protector de pantalla</span></figcaption></figure>
 <figure><img loading="lazy" src="img/avatars.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Pick your avatar">Elige tu avatar</span></figcaption></figure>
+<figure><img loading="lazy" src="img/shelf-menu.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Hold OK: move or remove from the shelf">Mantén OK: mover o quitar del estante</span></figcaption></figure>
+<figure><img loading="lazy" src="img/shelf-move.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Move the app with the arrows">Mueve la app con las flechas</span></figcaption></figure>
+<figure><img loading="lazy" src="img/shelf-hidden.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Hidden apps: bring them back any time">Apps ocultas: vuelve a mostrarlas cuando quieras</span></figcaption></figure>
+<figure><img loading="lazy" src="img/update-bell.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="A bell tells you about updates">Una campana te avisa de las actualizaciones</span></figcaption></figure>
+<figure><img loading="lazy" src="img/whats-new.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="What&#x27;s new in each version">Novedades en cada versión</span></figcaption></figure>
 </div></div></section>
 
 <section><div class="wrap">
@@ -130,6 +139,7 @@ footer .links{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px}
 <figure><img loading="lazy" src="img/onboarding-3-name.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Your name">Tu nombre</span></figcaption></figure>
 <figure><img loading="lazy" src="img/onboarding-4-home.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Your home screen">Tu pantalla de inicio</span></figcaption></figure>
 <figure><img loading="lazy" src="img/onboarding-5-permission.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="One permission">Un permiso</span></figcaption></figure>
+<figure><img loading="lazy" src="img/onboarding-6-shelf.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Customize your shelf">Personaliza tu estante</span></figcaption></figure>
 <figure><img loading="lazy" src="img/onboarding-6-done.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="All set">Todo listo</span></figcaption></figure>
 </div></div></section>
 
