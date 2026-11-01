@@ -27,6 +27,11 @@ final class NoticeView extends View {
     private final ShelfDemo demo = new ShelfDemo();
     private final Spring appear = new Spring(0.45f, 0.9f, 0);
     private final Spring[] pop = {new Spring(0.32f, 0.8f, 1), new Spring(0.32f, 0.8f, 0)};
+    /** An optional picture of three round icons with a caption each (for the news that has no animated demo). */
+    private String[] artIcons, artLabels;
+    private int[] artColors;
+    private final Spring[] artPop = {new Spring(0.4f, 0.7f, 0), new Spring(0.4f, 0.7f, 0), new Spring(0.4f, 0.7f, 0)};
+    private float artT;
     private int focus;   // 0 = the main button, 1 = the other
     private boolean okDown, backDown, closed;
     private long lastNanos;
@@ -49,6 +54,13 @@ final class NoticeView extends View {
         click = new Click(c);
         setContentDescription(title + ". " + body);
         setFocusable(false);
+    }
+
+    NoticeView art(String[] icons, String[] labels, int[] colors) {
+        artIcons = icons;
+        artLabels = labels;
+        artColors = colors;
+        return this;
     }
 
     private void paints(float k) {
@@ -140,7 +152,7 @@ final class NoticeView extends View {
         fill.setShader(null);
         fill.setColor(Ui.alpha(0xFF000000, 0.55f * a));
         c.drawRect(0, 0, w, h, fill);
-        float mh = picture ? 980 : 520, my = (1080 - mh) / 2f;
+        float mh = picture ? 980 : artIcons != null ? 720 : 520, my = (1080 - mh) / 2f;
         c.save();
         float s = 0.97f + 0.03f * a;
         c.scale(s, s, w / 2f, h / 2f);
@@ -174,6 +186,31 @@ final class NoticeView extends View {
             float dw = 800 * k;
             tmp.set(cx - dw / 2, (my + 310) * k, cx + dw / 2, (my + 310) * k + 450 * k);
             demo.draw(c, getContext(), tmp);
+            moving = true;
+        }
+
+        if (artIcons != null && !picture) {
+            artT += dt;
+            float gap3 = 300 * k, r = 66 * k, cy3 = (my + 440) * k;
+            Paint lab = new Paint(buttonPaint);
+            lab.setColor(0xDDFFFFFF);
+            lab.setTextSize(26 * k);
+            for (int i = 0; i < artIcons.length; i++) {
+                // Each icon pops in a little after the previous one, then floats gently.
+                artPop[i].target = artT > 0.12f * i + 0.15f ? 1 : 0;
+                moving |= artPop[i].step(dt);
+                float p = Ui.clamp(artPop[i].value), sc = 0.6f + 0.4f * p;
+                float ix = cx + (i - (artIcons.length - 1) / 2f) * gap3;
+                float iy = cy3 + (float) Math.sin(artT * 1.6f + i * 1.3f) * 5 * k;
+                fill.setShader(null);
+                fill.setColor(Ui.alpha(artColors[i], 0.22f * p * a));
+                c.drawCircle(ix, iy, r * 1.35f * sc, fill);
+                fill.setColor(Ui.alpha(artColors[i], p * a));
+                c.drawCircle(ix, iy, r * sc, fill);
+                Symbols.draw(getContext(), c, artIcons[i], ix, iy, 52 * k * sc, Ui.alpha(Brand.INK, p));
+                lab.setAlpha(Math.round(221 * p * a));
+                c.drawText(artLabels[i], ix, (my + 440 + 120) * k, lab);
+            }
             moving = true;
         }
 

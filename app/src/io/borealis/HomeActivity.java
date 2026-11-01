@@ -90,7 +90,7 @@ public class HomeActivity extends Activity {
     }
 
     /** The news the modal tells, in order. Each is shown once, by id; add a new id at the end for news worth telling. */
-    private static final String[] NEWS = {"shelf-menu", "fixes-3.45.1"};
+    private static final String[] NEWS = {"shelf-menu", "fixes-3.45.2"};
 
     private java.util.Set<String> seenNews() {
         android.content.SharedPreferences sp = getSharedPreferences("notice", MODE_PRIVATE);
@@ -148,6 +148,9 @@ public class HomeActivity extends Activity {
                         "We fixed minor bugs and compatibility issues. You can now also mute the click sounds in Settings.",
                         "Se repararon bugs y problemas de compatibilidad menores. Ahora también puedes silenciar el sonido de los clics en Ajustes.");
             showNotice(shelf, title, body, yes, () -> { markNewsSeen(id); showWhatsNewIfNeeded(); }, null, null);
+            if (!shelf && notice != null) notice.art(new String[] {"check", "tv", "speaker"},
+                    new String[] {Ui.tr("Bugs corrigidos", "Bugs fixed", "Bugs corregidos"), Ui.tr("Mais compatível", "More compatible", "Más compatible"), Ui.tr("Cliques opcionais", "Optional clicks", "Clics opcionales")},
+                    new int[] {Brand.LILY, Brand.PEACH, Brand.MELON});
             return;
         }
     }
