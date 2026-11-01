@@ -997,7 +997,7 @@ public class SettingsActivity extends Activity {
                         invalidate();
                     } else if (down && screen == GROUP) {
                         int id = groupIds()[focus];
-                        if ((id < 100 && id != WALLPAPER_ROW) || id == ID_SPLASH || id == ID_SOUND || id == ID_UPDATE_AUTO) {
+                        if ((id < 100 && id != WALLPAPER_ROW) || id == ID_SPLASH || id == ID_SOUND || id == ID_CLICKS || id == ID_UPDATE_AUTO) {
                             adjustSetting(id, e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
                             invalidate();
                         }
@@ -1126,7 +1126,7 @@ public class SettingsActivity extends Activity {
         /** The rows of the open group: ids of the old Home Settings rows, plus the ID_* ones. */
         private int[] groupIds() {
             switch (group) {
-                case 1: return sortedByName(WALLPAPER_ROW, ID_SAVER, ID_SPLASH, ID_SOUND);
+                case 1: return sortedByName(WALLPAPER_ROW, ID_SAVER, ID_SPLASH, ID_SOUND, ID_CLICKS);
                 case 2: {
                     int[] top = sortedByName(5, 6, ID_SHELF, ID_HIDDEN, 7, 8);
                     int coins = Math.max(0, settingLabels().length - COIN_ROWS);
@@ -1163,6 +1163,7 @@ public class SettingsActivity extends Activity {
                 case ID_LAUNCHER: return "Launcher";
                 case ID_SPLASH: return Ui.tr("Logo do launcher ao ligar a TV", "Launcher logo when the TV turns on", "Logo del launcher al encender la TV");
                 case ID_SOUND: return Ui.tr("Som de abertura", "Startup sound", "Sonido de inicio");
+                case ID_CLICKS: return Ui.tr("Som dos cliques", "Click sounds", "Sonido de los clics");
                 case ID_TV: return Ui.tr("Ajustes da TV", "TV Settings", "Ajustes de la TV");
                 case ID_REMOTE: return Ui.tr("Botão de ajustes do controle", "Remote's settings button", "Botón de ajustes del control");
                 case ID_WELCOME: return Ui.tr("Repetir as boas-vindas", "Replay the welcome", "Repetir bienvenida");
@@ -1180,6 +1181,7 @@ public class SettingsActivity extends Activity {
                 }
                 case ID_SPLASH: return onOff(Prefs.splash());
                 case ID_SOUND: return onOff(Prefs.startupSound());
+                case ID_CLICKS: return onOff(Prefs.clicks());
                 case ID_REMOTE: return onOff(remoteButtonOn());
                 case ID_SHELF: case ID_TV: case ID_WELCOME: return "";
                 case ID_HIDDEN: { int n = Prefs.hiddenApps().size(); return n == 0 ? "" : String.valueOf(n); }
@@ -1464,7 +1466,7 @@ public class SettingsActivity extends Activity {
         /** Home Settings: language, temperature, theme, weather, quotes, then one row per coin. */
         private static final int COIN_ROWS = 10, WALLPAPER_ROW = 9;
         /** Rows of a group that are not in the old Home Settings list: screensaver, shelf, launcher, TV settings. */
-        private static final int ID_SAVER = 100, ID_SHELF = 101, ID_LAUNCHER = 102, ID_TV = 103, ID_SPLASH = 104, ID_WELCOME = 105, ID_SOUND = 106, ID_REMOTE = 107, ID_UPDATE = 108, ID_UPDATE_AUTO = 109, ID_HIDDEN = 110;
+        private static final int ID_SAVER = 100, ID_SHELF = 101, ID_LAUNCHER = 102, ID_TV = 103, ID_SPLASH = 104, ID_WELCOME = 105, ID_SOUND = 106, ID_REMOTE = 107, ID_UPDATE = 108, ID_UPDATE_AUTO = 109, ID_HIDDEN = 110, ID_CLICKS = 111;
         private static final float CARD_H = 130, CARD_GAP = 14;
 
         private boolean dollar() {
@@ -1631,6 +1633,7 @@ public class SettingsActivity extends Activity {
                 case ID_SPLASH: Prefs.setSplash(!Prefs.splash()); return;
                 case ID_UPDATE_AUTO: Prefs.setUpdateAuto(!Prefs.updateAuto()); return;
                 case ID_REMOTE: askRemoteButton(); return;
+                case ID_CLICKS: Prefs.setClicks(!Prefs.clicks()); return;
                 case ID_SOUND: Prefs.setStartupSound(!Prefs.startupSound()); if (Prefs.startupSound()) StartupSound.play(getContext()); return;
                 default:
                     if (!Prefs.quotes()) return;

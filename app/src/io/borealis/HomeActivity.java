@@ -89,12 +89,25 @@ public class HomeActivity extends Activity {
         Prefs.setUpdateAt(System.currentTimeMillis());   // so the next check does not undo it for a day
     }
 
-    /** The id of the news the modal tells now: it is shown once per id, not once per version. Change it only for news worth telling again. */
-    private static final String NEWS = "shelf-menu";
+    /** The news the modal tells, in order. Each is shown once, by id; add a new id at the end for news worth telling. */
+    private static final String[] NEWS = {"shelf-menu", "fixes-3.45.1"};
 
-    private void markNoticeSeen() {
-        getSharedPreferences("notice", MODE_PRIVATE).edit().putString("news", NEWS).putString("seen", Update.installed(this)).apply();
+    private java.util.Set<String> seenNews() {
+        android.content.SharedPreferences sp = getSharedPreferences("notice", MODE_PRIVATE);
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (String id : sp.getString("ids", "").split(",")) if (!id.isEmpty()) out.add(id);
+        if (NEWS[0].equals(sp.getString("news", ""))) out.add(NEWS[0]);   // from the versions that kept a single id
+        return out;
     }
+
+    private void markNewsSeen(String... ids) {
+        java.util.Set<String> seen = seenNews();
+        for (String id : ids) seen.add(id);
+        getSharedPreferences("notice", MODE_PRIVATE).edit().putString("ids", android.text.TextUtils.join(",", seen))
+                .putString("seen", Update.installed(this)).apply();
+    }
+
+    private void markNoticeSeen() { markNewsSeen(NEWS); }
 
     /** A modal over the home screen (see NoticeView). Does nothing while another one or the welcome is up. */
     void showNotice(boolean picture, String title, String body, String yes, Runnable onYes, String no, Runnable onNo) {
@@ -111,22 +124,32 @@ public class HomeActivity extends Activity {
         if (splash != null) splash.bringToFront();
     }
 
-    /** What's new in this version: once per version, after the welcome (people who just did the welcome have seen it). */
+    /** What's new: the first news not seen yet, one at a time (the next one comes up when this closes). */
     private void showWhatsNewIfNeeded() {
         if (root == null || notice != null || onboarding != null || OnboardingView.pending(this)) return;
         if (splash != null && (splash.active() || splash.waiting())) return;
         String now = Update.installed(this);
+        if (now.isEmpty()) return;
         android.content.SharedPreferences sp = getSharedPreferences("notice", MODE_PRIVATE);
-        if (now.isEmpty() || NEWS.equals(sp.getString("news", ""))) return;
         String old = sp.getString("seen", "");   // from the versions that remembered it by version: seen from 3.44.0 on means seen
-        if (!old.isEmpty() && !Update.isNewer("3.44.0", old)) { markNoticeSeen(); return; }
-        showNotice(true,
-                Ui.tr("Nova atualização · Versão ", "New update · Version ", "Nueva actualización · Versión ") + now,
-                Ui.tr("Personalize o seu estante de apps. ", "Make your app shelf yours. ", "Personaliza tu estante de apps. ")
+        if (!old.isEmpty() && !Update.isNewer("3.44.0", old)) markNewsSeen(NEWS[0]);
+        java.util.Set<String> seen = seenNews();
+        String title = Ui.tr("Nova atualização · Versão ", "New update · Version ", "Nueva actualización · Versión ") + now;
+        final String yes = Ui.tr("Entendi", "Got it", "Entendido");
+        for (final String id : NEWS) {
+            if (seen.contains(id)) continue;
+            boolean shelf = id.equals("shelf-menu");
+            String body = shelf
+                    ? Ui.tr("Personalize o seu estante de apps. ", "Make your app shelf yours. ", "Personaliza tu estante de apps. ")
                         + Ui.tr("Segure OK sobre um app do estante para movê-lo, removê-lo ou ocultá-lo. Os apps ocultos ficam no fim de Todos os apps, e de lá você pode mostrá-los de novo.",
                         "Hold OK on a shelf app to move it, remove it or hide it. Hidden apps wait at the end of All apps, and you can bring them back from there.",
-                        "Mantén OK sobre una app del estante para moverla, quitarla u ocultarla. Las apps ocultas quedan al final de Todas las apps y desde ahí puedes volver a mostrarlas."),
-                Ui.tr("Entendi", "Got it", "Entendido"), this::markNoticeSeen, null, null);
+                        "Mantén OK sobre una app del estante para moverla, quitarla u ocultarla. Las apps ocultas quedan al final de Todas las apps y desde ahí puedes volver a mostrarlas.")
+                    : Ui.tr("Corrigimos pequenos bugs e problemas de compatibilidade. Agora você também pode silenciar o som dos cliques em Ajustes.",
+                        "We fixed minor bugs and compatibility issues. You can now also mute the click sounds in Settings.",
+                        "Se repararon bugs y problemas de compatibilidad menores. Ahora también puedes silenciar el sonido de los clics en Ajustes.");
+            showNotice(shelf, title, body, yes, () -> { markNewsSeen(id); showWhatsNewIfNeeded(); }, null, null);
+            return;
+        }
     }
 
     private SplashView newSplash(boolean waiting) { return newSplash(waiting, false); }

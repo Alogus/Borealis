@@ -31,11 +31,11 @@ final class Click {
     }
 
     void move() {
-        if (pool != null) pool.play(move, 0.30f, 0.30f, 1, 0, 1f);
+        if (pool != null && Prefs.clicks()) pool.play(move, 0.30f, 0.30f, 1, 0, 1f);
     }
 
     void open() {
-        if (pool != null) pool.play(open, 0.38f, 0.38f, 1, 0, 1f);
+        if (pool != null && Prefs.clicks()) pool.play(open, 0.38f, 0.38f, 1, 0, 1f);
     }
 
     void release() {

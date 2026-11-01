@@ -304,15 +304,28 @@ final class HomeMode {
             adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.HOME");
             ModeJob.schedule(c, ModeJob.MEMORY, FREE, 120_000);
         } catch (Exception e) {
-            if (String.valueOf(e.getMessage()).contains("port 5555 closed")) {
-                // No ADB on this TV: the soft Home (accessibility service) takes the Home button instead. The person only has to turn the service on.
+            String why = String.valueOf(e.getMessage());
+            boolean noAdb = why.contains("port 5555 closed");
+            // The TV never showed (or never got) the "Allow USB debugging?" answer, or its ADB stayed silent: same way out.
+            boolean noApproval = why.contains("wasn't accepted") || why.contains("didn't respond") || why.contains("rejected the app's key");
+            if (noAdb || noApproval) {
+                // No usable ADB on this TV: the soft Home (accessibility service) takes the Home button instead. The person only has to turn the service on.
                 setSoft(c, true);
-                done(c, Ui.tr("a depuração da TV está desligada. Plano B: ative o Borealis em Configurações → Acessibilidade, e o botão Início abrirá o Borealis. "
-                        + "Ou ligue a Depuração USB nas Opções do desenvolvedor e tente de novo.",
-                        "debugging is off on the TV. Plan B: turn Borealis on in Settings → Accessibility, and the Home button will open Borealis. "
-                        + "Or turn on USB debugging in Developer options and try again.",
-                        "la depuración del TV está apagada. Plan B: activa Borealis en Ajustes → Accesibilidad y el botón Inicio abrirá Borealis. "
-                        + "O enciende la Depuración USB en Opciones de desarrollador y vuelve a intentarlo."));
+                if (noAdb) {
+                    done(c, Ui.tr("a depuração da TV está desligada. Plano B: ative o Borealis em Configurações → Acessibilidade, e o botão Início abrirá o Borealis. "
+                            + "Ou ligue a Depuração USB nas Opções do desenvolvedor e tente de novo.",
+                            "debugging is off on the TV. Plan B: turn Borealis on in Settings → Accessibility, and the Home button will open Borealis. "
+                            + "Or turn on USB debugging in Developer options and try again.",
+                            "la depuración del TV está apagada. Plan B: activa Borealis en Ajustes → Accesibilidad y el botón Inicio abrirá Borealis. "
+                            + "O enciende la Depuración USB en Opciones de desarrollador y vuelve a intentarlo."));
+                } else {
+                    done(c, Ui.tr("a TV não confirmou a permissão de depuração. Plano B: ative o Borealis em Configurações → Acessibilidade, e o botão Início abrirá o Borealis. "
+                            + "Para o modo completo: em Opções do desenvolvedor, revogue as autorizações de depuração USB e tente de novo.",
+                            "the TV didn't confirm the debugging permission. Plan B: turn Borealis on in Settings → Accessibility, and the Home button will open Borealis. "
+                            + "For the full mode: in Developer options, revoke the USB debugging authorizations and try again.",
+                            "el TV no confirmó el permiso de depuración. Plan B: activa Borealis en Ajustes → Accesibilidad y el botón Inicio abrirá Borealis. "
+                            + "Para el modo completo: en Opciones de desarrollador, revoca las autorizaciones de depuración USB y vuelve a intentarlo."));
+                }
                 return;
             }
             done(c, Ui.tr("Não deu para ligar o Borealis: ", "Couldn't turn on Borealis: ") + e.getMessage());

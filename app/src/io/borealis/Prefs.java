@@ -153,6 +153,9 @@ final class Prefs {
     static void setSplash(boolean on) { put("splash", on); }
     static boolean startupSound() { return sp().getBoolean("startupSound", true); }
     static void setStartupSound(boolean on) { put("startupSound", on); }
+    /** The clicks when moving and pressing on the home screen (on by default). */
+    static boolean clicks() { return sp().getBoolean("clicks", true); }
+    static void setClicks(boolean on) { put("clicks", on); }
 
     static boolean weather() { return sp().getBoolean("weather", true); }
     static void setWeather(boolean on) { put("weather", on); }
