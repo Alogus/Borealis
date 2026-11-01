@@ -45,6 +45,7 @@ public class HomeActivity extends Activity {
             return;
         }
         Ui.init(this);
+        HomeMode.clearStaleBusy(this);
         home = new HomeView(this);
         root = new FrameLayout(this);
         root.addView(home, new FrameLayout.LayoutParams(-1, -1));
@@ -80,8 +81,12 @@ public class HomeActivity extends Activity {
         if (splash != null) splash.bringToFront();
     }
 
-    /** For testing the bell: `adb shell am start -n io.borealis/.HomeActivity --es fakeupdate 9.9.9` ("" clears it). */
+    /** For testing the bell: `adb shell am start -n io.borealis/.HomeActivity --es fakeupdate 9.9.9` ("" clears it); `--ez fakenews true` shows the news again. */
     private void fakeUpdate(Intent intent) {
+        // For screenshots: `--ez fakenews true` forgets which news were seen, so the modals come up again.
+        if (intent != null && intent.getBooleanExtra("fakenews", false)) {
+            getSharedPreferences("notice", MODE_PRIVATE).edit().remove("ids").remove("news").remove("seen").apply();
+        }
         if (intent == null || !intent.hasExtra("fakeupdate")) return;
         String v = intent.getStringExtra("fakeupdate");
         Prefs.setUpdateFound(v == null ? "" : v);

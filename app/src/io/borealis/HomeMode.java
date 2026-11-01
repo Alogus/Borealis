@@ -712,13 +712,34 @@ final class HomeMode {
 
     private static void busy(Context c, String text) {
         JSONObject s = state(c);
-        try { s.put("busy", text).put("error", ""); } catch (JSONException ignored) {}
+        try { s.put("busy", text).put("busyAt", System.currentTimeMillis()).put("error", ""); } catch (JSONException ignored) {}
+        save(c, s);
+    }
+
+    /**
+     * A switch that was cut off (the app was updated or killed in the middle of it) leaves "busy" in the state file for ever:
+     * the Launcher row says "Connecting…" and nothing else can start. Every step refreshes `busyAt`, so a busy that has not
+     * moved for 3 minutes (or has no time, from an older version) is dead: we clear it. If Borealis is not the home screen
+     * yet, the soft Home (accessibility) is what is left, so that is switched on.
+     */
+    static void clearStaleBusy(Context c) {
+        JSONObject s = state(c);
+        if (s.optString("busy").isEmpty()) return;
+        long at = s.optLong("busyAt", 0);
+        if (at != 0 && System.currentTimeMillis() - at < 180_000) return;
+        AppLog.w("stale busy cleared: " + s.optString("busy"));
+        s.remove("busy");
+        s.remove("busyAt");
+        if (!(FREE.equals(s.optString("mode")) && !s.optBoolean("homeReverted"))) {
+            try { s.put("soft", true); } catch (JSONException ignored) {}
+        }
         save(c, s);
     }
 
     private static void done(Context c, String error) {
         JSONObject s = state(c);
         s.remove("busy");
+        s.remove("busyAt");
         try { s.put("error", error == null ? "" : error); } catch (JSONException ignored) {}
         save(c, s);
         if (error != null) {

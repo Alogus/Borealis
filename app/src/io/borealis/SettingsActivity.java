@@ -53,6 +53,7 @@ public class SettingsActivity extends Activity {
         super.onCreate(savedInstanceState);
         Watchdog.install(this);
         Ui.init(this);
+        HomeMode.clearStaleBusy(this);
         // First time, before Borealis is the TV's home: the app's icon goes straight to the welcome (it turns Borealis on at the end).
         if (OnboardingView.pending(this) && !HomeMode.isFree(this)) {
             startActivity(new Intent(this, HomeActivity.class));
