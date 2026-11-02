@@ -1,6 +1,6 @@
 # Borealis: privacy / privacidad
 
-*Last updated: October 2026 (update check added). Español más abajo.*
+*Last updated: November 2026 (weather city search added). Español más abajo.*
 
 ## English
 
@@ -19,7 +19,7 @@ information to the author or to anyone who runs Borealis.
 **What it asks from the internet** (only to show things on your home screen)
 - TMDB (themoviedb.org): trending titles and where to watch them, and their pictures, for your country.
   This product uses the TMDB API but is not endorsed or certified by TMDB.
-- Open-Meteo (open-meteo.com): the weather and sunset, using the coordinates in the settings (or your time zone's main city).
+- Open-Meteo (open-meteo.com): the weather and sunset, for the city you choose in Borealis (Settings → Home screen → Weather location). To find the city, the text you type and the country you pick are sent to Open-Meteo's search; nothing else is sent, and Borealis never reads your real location for this.
 - Binance: 24-hour prices of the coins you choose, only if you turn that on.
 - The cover picture of the song or show, from the address that the playing app gives.
 - GitHub (api.github.com): once a day, to ask which Borealis version is the latest, so it can tell you when there is an update. It only reads; it sends nothing about you. If you choose to install an update, it downloads the new file from GitHub too. You can turn the check off in Borealis's settings (System → Check for updates by itself).
@@ -47,7 +47,7 @@ autor ni a nadie.
 **Lo que pide a internet** (solo para mostrar cosas en tu pantalla de inicio)
 - TMDB (themoviedb.org): títulos en tendencia, dónde verlos y sus imágenes, para tu país. Este producto usa la API de
   TMDB pero no está respaldado ni certificado por TMDB.
-- Open-Meteo (open-meteo.com): el clima y el atardecer, con las coordenadas de los ajustes (o la ciudad principal de tu zona horaria).
+- Open-Meteo (open-meteo.com): el clima y el atardecer, de la ciudad que elijas en Borealis (Ajustes → Pantalla principal → Ubicación del clima). Para encontrar la ciudad se envían a la búsqueda de Open-Meteo el texto que escribes y el país que eliges; no se envía nada más y Borealis nunca lee tu ubicación real para esto.
 - Binance: precios de 24 horas de las monedas que elijas, solo si lo activas.
 - La portada de la canción o serie, desde la dirección que da la app que reproduce.
 - GitHub (api.github.com): una vez al día, para preguntar cuál es la última versión de Borealis y avisarte si hay una actualización. Solo lee; no envía nada sobre ti. Si decides instalar una actualización, también descarga el archivo nuevo desde GitHub. Puedes apagar la búsqueda en los ajustes de Borealis (Sistema → Buscar actualizaciones solo).

@@ -2,6 +2,18 @@
 
 Newest first. / Lo más nuevo primero.
 
+## 3.46.4
+- EN: **Borealis's own keyboard** for the TV, replacing Android's: it types your name, country and city, and suggests matches as you type (countries filter instantly; cities are searched from the second letter). A physical keyboard types too.
+- ES: **Teclado propio de Borealis** para la TV, en lugar del de Android: sirve para tu nombre, país y ciudad, y sugiere coincidencias mientras escribes (los países se filtran al instante; las ciudades se buscan desde la segunda letra). Un teclado físico también escribe.
+
+## 3.46.0
+- EN: **Choose your city for the weather and sunset**: in the welcome (country, then city) and in Settings → Home screen → Weather location. Until now everyone saw the weather of the city set when the app was built.
+- EN: The bell is always there; it keeps the news and shows a dot when there is an update.
+- EN: Safer switch to Borealis: if the TV does not hand over the home screen, nothing is turned off and Plan B takes the Home button (fixes a black screen on some TCL TVs).
+- ES: **Elige tu ciudad para el clima y el atardecer**: en la bienvenida (país y luego ciudad) y en Ajustes → Pantalla principal → Ubicación del clima. Hasta ahora todos veían el clima de la ciudad con la que se compiló la app.
+- ES: La campana siempre está; guarda las novedades y muestra un punto cuando hay una actualización.
+- ES: Cambio a Borealis más seguro: si la TV no entrega el inicio, no se apaga nada y el Plan B toma el botón Inicio (arregla una pantalla negra en algunas TV TCL).
+
 ## 3.45.4
 - EN: Fixes the Launcher row stuck on "Connecting…" after an update cut a switch short; the Home button now works in Plan B in that case.
 - ES: Arregla la fila Launcher que se quedaba en "Conectando…" cuando una actualización cortaba un cambio a la mitad; el botón Inicio ahora funciona en el Plan B en ese caso.

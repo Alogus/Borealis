@@ -7,7 +7,7 @@ in your language (Español, English, Português). Designed and developed by **Al
 
 <p align="center"><img src="screenshots/home.jpg" alt="Borealis home screen" width="100%"></p>
 
-> Beta. Tested on Android TV 11 and 14 (TCL, Onn and others), see [Compatibility](#compatibility). Use it with care and tell me what you find.
+> Beta. Tested on Android TV 9, 11 and 14 (TCL, Sansui, Onn and others), see [Compatibility](#compatibility). Use it with care and tell me what you find.
 
 <table>
   <tr>
@@ -69,9 +69,14 @@ Reports from real TVs (Android TV / Google TV):
 | TV | Android | Result |
 |---|---|---|
 | Challenger (Realtek) | 11 | Full mode |
+| Sansui 60" | 9 | Full mode |
 | TCL 50Q6K | 14 | Full mode (installed with Downloader, debugging on) |
 | Onn 4K Streaming Box | 14 | Plan B (the Wi-Fi blocks changing the home screen) |
 | Other TCL / Hisense TVs | 11 | Being tested, reports welcome |
+
+**Why it differs between TVs.** Every brand puts its own firmware on top of Android, and some let Borealis use the TV's debugging (ADB) while others do not. Borealis works in two ways:
+- **Full mode** (the TV allows it): Borealis becomes your home screen and turns off the original launcher and some apps, so it is faster.
+- **Plan B** (the TV does not allow it): Borealis opens with the Home button. For that it uses an accessibility permission that **only watches the Home and Settings keys**. It does not read your screen or content, and it is not TalkBack.
 
 Untested: Fire TV, VIDAA, webOS and Tizen are not supported yet. Tell us in an [issue](../../issues) which TV you have and what you saw.
 
@@ -116,7 +121,7 @@ GitHub may show "MIT licenses found" because the original Free My TV code keeps 
 
 **[⬇ Descarga la última versión](../../releases/latest)** · o en la TV abre **Downloader** y escribe **3357424**
 
-> Beta. Probado en Android TV 11 y 14 (TCL, Onn y otras), mira [Compatibilidad](#compatibilidad). Úsalo con cuidado y cuéntame qué encuentras.
+> Beta. Probado en Android TV 9, 11 y 14 (TCL, Sansui, Onn y otras), mira [Compatibilidad](#compatibilidad). Úsalo con cuidado y cuéntame qué encuentras.
 
 <table>
   <tr>
@@ -178,9 +183,14 @@ Reportes de TVs reales (Android TV / Google TV):
 | TV | Android | Resultado |
 |---|---|---|
 | Challenger (Realtek) | 11 | Modo completo |
+| Sansui 60" | 9 | Modo completo |
 | TCL 50Q6K | 14 | Modo completo (instalada con Downloader, depuración activa) |
 | Onn 4K Streaming Box | 14 | Plan B (el Wi-Fi bloquea el cambio de inicio) |
 | Otras TCL / Hisense | 11 | En pruebas, se agradecen reportes |
+
+**Por qué cambia entre TVs.** Cada marca pone su propio firmware sobre Android, y algunas dejan que Borealis use la depuración (ADB) de la TV y otras no. Borealis funciona de dos maneras:
+- **Modo completo** (si la TV lo permite): Borealis se vuelve tu pantalla de inicio y apaga el launcher original y algunas apps, así que es más rápido.
+- **Plan B** (si la TV no lo permite): Borealis se abre con el botón Inicio. Para eso usa un permiso de accesibilidad que **solo detecta las teclas Inicio y Ajustes**. No lee tu pantalla ni tu contenido, y no es TalkBack.
 
 Sin soporte todavía: Fire TV, VIDAA, webOS y Tizen. Cuéntanos en un [issue](../../issues) qué TV tienes y qué viste.
 
