@@ -15,13 +15,14 @@ import android.widget.TextView;
  * the safety net in the main process keeps working. On the 3rd crash within 5 min, the Watchdog gives the home screen
  * back to the TV's original one.
  */
-public class HomeActivity extends Activity {
+public class HomeActivity extends Activity implements TextEntry.Host {
     /** True while the home screen is the one on top (the settings use it to know where a fade-out lands). */
     static volatile boolean resumed;
     private HomeView home;
     private SplashView splash;
     private OnboardingView onboarding;
     private NoticeView notice;
+    private TextEntryView entry;   // Borealis's keyboard (the welcome asks the name, the country and the city with it)
     private FrameLayout root;
     static final String EXTRA_UPDATED = "io.borealis.UPDATED";
     private int prefsVersion = Prefs.version;   // settings changed while we were away: start over
@@ -81,6 +82,19 @@ public class HomeActivity extends Activity {
         if (splash != null) splash.bringToFront();
     }
 
+    /** Borealis's keyboard (see TextEntry), over the home screen and the welcome. */
+    @Override public void askText(TextEntry.Request r) {
+        if (root == null || entry != null) return;
+        final TextEntryView[] mine = new TextEntryView[1];
+        mine[0] = new TextEntryView(this, r, () -> {
+            if (root != null && mine[0] != null) root.removeView(mine[0]);
+            if (entry == mine[0]) entry = null;
+        });
+        entry = mine[0];
+        root.addView(entry, new FrameLayout.LayoutParams(-1, -1));
+        if (splash != null) splash.bringToFront();
+    }
+
     /** For testing the bell: `adb shell am start -n io.borealis/.HomeActivity --es fakeupdate 9.9.9` ("" clears it); `--ez fakenews true` shows the news again. */
     private void fakeUpdate(Intent intent) {
         // For screenshots: `--ez fakenews true` forgets which news were seen, so the modals come up again.
@@ -95,7 +109,7 @@ public class HomeActivity extends Activity {
     }
 
     /** The news the modal tells, in order. Each is shown once, by id; add a new id at the end for news worth telling. */
-    private static final String[] NEWS = {"shelf-menu", "fixes-3.45.2"};
+    private static final String[] NEWS = {"shelf-menu", "fixes-3.45.2", "weather-city"};   // "downloads-1000" (showMilestone) waits for the notification service
 
     private java.util.Set<String> seenNews() {
         android.content.SharedPreferences sp = getSharedPreferences("notice", MODE_PRIVATE);
@@ -139,25 +153,99 @@ public class HomeActivity extends Activity {
         String old = sp.getString("seen", "");   // from the versions that remembered it by version: seen from 3.44.0 on means seen
         if (!old.isEmpty() && !Update.isNewer("3.44.0", old)) markNewsSeen(NEWS[0]);
         java.util.Set<String> seen = seenNews();
-        String title = Ui.tr("Nova atualização · Versão ", "New update · Version ", "Nueva actualización · Versión ") + now;
-        final String yes = Ui.tr("Entendi", "Got it", "Entendido");
         for (final String id : NEWS) {
             if (seen.contains(id)) continue;
-            boolean shelf = id.equals("shelf-menu");
-            String body = shelf
-                    ? Ui.tr("Personalize o seu estante de apps. ", "Make your app shelf yours. ", "Personaliza tu estante de apps. ")
-                        + Ui.tr("Segure OK sobre um app do estante para movê-lo, removê-lo ou ocultá-lo. Os apps ocultos ficam no fim de Todos os apps, e de lá você pode mostrá-los de novo.",
-                        "Hold OK on a shelf app to move it, remove it or hide it. Hidden apps wait at the end of All apps, and you can bring them back from there.",
-                        "Mantén OK sobre una app del estante para moverla, quitarla u ocultarla. Las apps ocultas quedan al final de Todas las apps y desde ahí puedes volver a mostrarlas.")
-                    : Ui.tr("Corrigimos pequenos bugs e problemas de compatibilidade. Agora você também pode silenciar o som dos cliques em Ajustes.",
-                        "We fixed minor bugs and compatibility issues. You can now also mute the click sounds in Settings.",
-                        "Se repararon bugs y problemas de compatibilidad menores. Ahora también puedes silenciar el sonido de los clics en Ajustes.");
-            showNotice(shelf, title, body, yes, () -> { markNewsSeen(id); showWhatsNewIfNeeded(); }, null, null);
-            if (!shelf && notice != null) notice.art(new String[] {"check", "tv", "speaker"},
-                    new String[] {Ui.tr("Bugs corrigidos", "Bugs fixed", "Bugs corregidos"), Ui.tr("Mais compatível", "More compatible", "Más compatible"), Ui.tr("Cliques opcionais", "Optional clicks", "Clics opcionales")},
-                    new int[] {Brand.LILY, Brand.PEACH, Brand.MELON});
+            showNewsEntry(id, false, this::showWhatsNewIfNeeded);
             return;
         }
+    }
+
+    /** The bell with nothing to update: the news again, the newest first (the history). */
+    void showNewsHistory() {
+        showHistoryFrom(NEWS.length - 1);
+    }
+
+    private void showHistoryFrom(final int i) {
+        if (i < 0) return;
+        showNewsEntry(NEWS[i], true, () -> showHistoryFrom(i - 1));
+    }
+
+    /** One news as a modal. `after` runs once it is closed; when it is not a replay, the news counts as seen. */
+    private void showNewsEntry(final String id, final boolean history, final Runnable after) {
+        String now = Update.installed(this);
+        if (id.equals("downloads-1000")) {
+            showMilestone(id, history, after);
+            return;
+        }
+        if (id.equals("weather-city")) {
+            showWeatherNews(id, history, after);
+            return;
+        }
+        String title = history
+                ? Ui.tr("Novidades · Versão ", "What's new · Version ", "Novedades · Versión ") + now
+                : Ui.tr("Nova atualização · Versão ", "New update · Version ", "Nueva actualización · Versión ") + now;
+        final String yes = Ui.tr("Entendi", "Got it", "Entendido");
+        boolean shelf = id.equals("shelf-menu");
+        String body = shelf
+                ? Ui.tr("Personalize o seu estante de apps. ", "Make your app shelf yours. ", "Personaliza tu estante de apps. ")
+                    + Ui.tr("Segure OK sobre um app do estante para movê-lo, removê-lo ou ocultá-lo. Os apps ocultos ficam no fim de Todos os apps, e de lá você pode mostrá-los de novo.",
+                    "Hold OK on a shelf app to move it, remove it or hide it. Hidden apps wait at the end of All apps, and you can bring them back from there.",
+                    "Mantén OK sobre una app del estante para moverla, quitarla u ocultarla. Las apps ocultas quedan al final de Todas las apps y desde ahí puedes volver a mostrarlas.")
+                : Ui.tr("Corrigimos pequenos bugs e problemas de compatibilidade. Agora você também pode silenciar o som dos cliques em Ajustes.",
+                    "We fixed minor bugs and compatibility issues. You can now also mute the click sounds in Settings.",
+                    "Se repararon bugs y problemas de compatibilidad menores. Ahora también puedes silenciar el sonido de los clics en Ajustes.");
+        showNotice(shelf, title, body, yes, () -> {
+            if (!history) markNewsSeen(id);
+            if (after != null) after.run();
+        }, null, null);
+        if (!shelf && notice != null) notice.art(new String[] {"check", "tv", "speaker"},
+                new String[] {Ui.tr("Bugs corrigidos", "Bugs fixed", "Bugs corregidos"), Ui.tr("Mais compatível", "More compatible", "Más compatible"), Ui.tr("Cliques opcionais", "Optional clicks", "Clics opcionales")},
+                new int[] {Brand.LILY, Brand.PEACH, Brand.MELON});
+    }
+
+    /** The weather location: "Set up now" opens Settings straight at the country and city; "Later" tells where to find it. */
+    private void showWeatherNews(final String id, final boolean history, final Runnable after) {
+        final Runnable done = () -> {
+            if (!history) markNewsSeen(id);
+            if (after != null) after.run();
+        };
+        showNotice(false,
+                Ui.tr("Agora você escolhe a sua cidade", "Now you can choose your city", "Ahora puedes elegir tu ciudad"),
+                Ui.tr("O clima e o pôr do sol do Borealis agora seguem a cidade que você escolher. Configure agora ou depois em Ajustes > Tela principal > Localização do clima.",
+                        "Borealis's weather and sunset now follow the city you pick. Set it up now, or later in Settings > Home screen > Weather location.",
+                        "El clima y el atardecer de Borealis ahora siguen la ciudad que elijas. Configúralo ahora o después en Ajustes > Pantalla principal > Ubicación del clima."),
+                Ui.tr("Configurar agora", "Set up now", "Configurar ahora"), () -> {
+                    if (!history) markNewsSeen(id);
+                    startActivity(new Intent(this, SettingsActivity.class).putExtra("place", true));
+                },
+                Ui.tr("Depois", "Later", "Más tarde"), done);
+        if (notice != null) notice.weather();
+    }
+
+    /** The thank-you for the first 1,000 downloads: "Support" shows a QR code to the sponsors page, "Not now" closes. */
+    private void showMilestone(final String id, final boolean history, final Runnable after) {
+        final Runnable done = () -> {
+            if (!history) markNewsSeen(id);
+            if (after != null) after.run();
+        };
+        showNotice(false,
+                Ui.tr("Passamos de 1.000 downloads: obrigado!", "We passed 1,000 downloads: thank you!", "¡Superamos las 1.000 descargas: gracias!"),
+                Ui.tr("Obrigado por confiar no Borealis. Ele continua gratuito e vive de doações voluntárias. Se quiser ajudar, apoie quando quiser. E, se você gostou, conte para amigos e família.",
+                        "Thank you for trusting Borealis. It stays free and lives on voluntary donations. If you want to help, you can support it any time. And if you like it, tell your friends and family.",
+                        "Gracias por confiar en Borealis. Sigue siendo gratis y vive de donaciones voluntarias. Si quieres ayudar, puedes apoyarlo cuando quieras. Y si te gusta, cuéntale a tus amigos y familia."),
+                Ui.tr("Apoiar", "Support", "Patrocinar"), () -> { if (!history) markNewsSeen(id); showSponsorQr(after); },
+                Ui.tr("Agora não", "Not now", "Ahora no"), done);
+        if (notice != null) notice.milestone(Ui.tr("1.000", "1,000", "1.000"), Ui.tr("downloads", "downloads", "descargas"));
+    }
+
+    private void showSponsorQr(final Runnable after) {
+        showNotice(false,
+                Ui.tr("Apoie o Borealis", "Support Borealis", "Apoya a Borealis"),
+                Ui.tr("Aponte a câmera do celular para o código. Doar é voluntário e não libera nada: só ajuda o Borealis a continuar.",
+                        "Point your phone's camera at the code. Donating is voluntary and unlocks nothing: it only helps Borealis go on.",
+                        "Apunta la cámara de tu celular al código. Donar es voluntario y no desbloquea nada: solo ayuda a que Borealis siga."),
+                Ui.tr("Pronto", "Done", "Listo"), after, null, null);
+        if (notice != null) notice.qr(NoticeView.SPONSOR_QR, "github.com/sponsors/Alogus");
     }
 
     private SplashView newSplash(boolean waiting) { return newSplash(waiting, false); }
@@ -256,6 +344,7 @@ public class HomeActivity extends Activity {
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (entry != null) return entry.onKey(event) || super.dispatchKeyEvent(event);
         if (onboarding != null && !(splash != null && splash.active())) {   // the welcome takes the keys (the volume still goes to the system)
             if (onboarding.onKey(event)) return true;
             int kc = event.getKeyCode();

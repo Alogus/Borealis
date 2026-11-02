@@ -142,9 +142,17 @@ final class Prefs {
 
     // MARK: - City (from config.properties)
 
-    static String city() { return Config.CITY.trim(); }
-    static String latitude() { return Config.LATITUDE; }
-    static String longitude() { return Config.LONGITUDE; }
+    /** The city the person chose on the TV (welcome or Settings) wins; without one, the build's config.properties gives it. */
+    static String city() { return sp().getString("placeCity", Config.CITY).trim(); }
+    static String latitude() { return sp().getString("placeLat", Config.LATITUDE); }
+    static String longitude() { return sp().getString("placeLon", Config.LONGITUDE); }
+    static boolean placeChosen() { return sp().getString("placeLat", null) != null; }
+    static String placeCountry() { return sp().getString("placeCountry", ""); }
+    static void setPlace(String country, String city, double lat, double lon) {
+        sp().edit().putString("placeCountry", country).putString("placeCity", city)
+                .putString("placeLat", String.valueOf(lat)).putString("placeLon", String.valueOf(lon)).apply();
+        version++;
+    }
 
     // MARK: - Widgets and coins
 

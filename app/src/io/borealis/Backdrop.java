@@ -189,6 +189,15 @@ final class Backdrop {
         return px;
     }
 
+    /** A very soft version of a picture for the backs of full-screen panels: reduced step by step, then blurred (3 box passes), 192 × 108. */
+    static Bitmap blurred(Bitmap full) {
+        int w = 192, h = 108;
+        int[] px = reduce(full, w, h, 5, 3);
+        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        out.setPixels(px, 0, w, 0, 0, w, h);
+        return out;
+    }
+
     /** Halved at each step (a true average, no aliasing), then blurred (box passes of radius r). */
     private static int[] reduce(Bitmap full, int w, int h, int radius, int passes) {
         Bitmap b = full;

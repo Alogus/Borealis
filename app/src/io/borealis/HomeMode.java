@@ -262,7 +262,18 @@ final class HomeMode {
             check(adb.shell("cmd package set-home-activity " + HOME_ACTIVITY), "Success",
                     Ui.tr("o Android não aceitou o novo Início", "Android didn't accept the new home screen"));
             adb.shell("settings put secure screensaver_components " + DREAM);
-            if (keepsWifi && !homeHolder(adb).contains(PKG)) {
+            boolean ours = homeHolder(adb).contains(PKG);
+            if (!ours && !keepsWifi) {
+                // Android said "Success" but kept the TV's own home screen (some TCL). Turning that one off now would leave the TV
+                // with no home screen (black screen), so nothing is turned off: the soft Home takes the Home button instead.
+                setSoft(c, true);
+                softAccess(c, adb);
+                done(c, Ui.tr("esta TV não passou o Início para o Borealis, então não desligamos nada. Plano B: ative o Borealis em Configurações → Acessibilidade, e o botão Início abrirá o Borealis.",
+                        "this TV did not hand the home screen to Borealis, so nothing was turned off. Plan B: turn Borealis on in Settings → Accessibility, and the Home button will open Borealis.",
+                        "este TV no le pasó el Inicio a Borealis, así que no apagamos nada. Plan B: activa Borealis en Ajustes → Accesibilidad y el botón Inicio abrirá Borealis."));
+                return;
+            }
+            if (keepsWifi && !ours) {
                 setSoft(c, true);
                 softAccess(c, adb);   // ADB is here: allow the restricted setting and turn the service on ourselves
                 done(c, Ui.tr("a configuração inicial da TV salvou o seu Wi-Fi e desligá-la apagaria essa rede. Para não perdê-la, usamos o modo sem ADB: aperte Início para testar. Se não abrir o Borealis, ative-o em Configurações → Acessibilidade.",

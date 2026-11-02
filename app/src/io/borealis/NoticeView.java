@@ -32,6 +32,45 @@ final class NoticeView extends View {
     private int[] artColors;
     private final Spring[] artPop = {new Spring(0.4f, 0.7f, 0), new Spring(0.4f, 0.7f, 0), new Spring(0.4f, 0.7f, 0)};
     private float artT;
+    /** A big number with a line under it (the milestone), and a QR code with its text under it. */
+    private String bigNumber, bigUnder;
+    private String[] qrRows;
+    private String qrText;
+    /** A weather card that changes city (the weather location news): the pin, the city, a symbol and a temperature. */
+    private boolean weatherPic;
+    private final PlaceWidget widget = new PlaceWidget();
+
+    /** The QR code of https://github.com/sponsors/Alogus (version 3, 29 × 29 modules; "1" is a dark module). */
+    static final String[] SPONSOR_QR = {
+            "11111110101010011010001111111",
+            "10000010100000001101001000001",
+            "10111010111000011010101011101",
+            "10111010010110001101101011101",
+            "10111010101110111101001011101",
+            "10000010001010011010001000001",
+            "11111110101010101010101111111",
+            "00000000011101011001100000000",
+            "10011111111111001101110010111",
+            "01101101010001001111010110110",
+            "00101010110001011000000110100",
+            "01111000011011011101011101001",
+            "00111010010111010001001100001",
+            "10001000011101111000001111111",
+            "00100110011111010111111010101",
+            "11000000101110000011000110101",
+            "11100010100000111001110001000",
+            "10001000010101110101000010110",
+            "11100011000000010011000011001",
+            "11010100000000111001001001100",
+            "11001010110011111110111111110",
+            "00000000101000110110100011000",
+            "11111110110100111001101011000",
+            "10000010111110110101100010000",
+            "10111010111101101101111111011",
+            "10111010101001011010010000001",
+            "10111010001110111010110110111",
+            "10000010011111100000001101101",
+            "11111110110100100001101010000"};
     private int focus;   // 0 = the main button, 1 = the other
     private boolean okDown, backDown, closed;
     private long lastNanos;
@@ -60,6 +99,23 @@ final class NoticeView extends View {
         artIcons = icons;
         artLabels = labels;
         artColors = colors;
+        return this;
+    }
+
+    NoticeView milestone(String number, String under) {
+        bigNumber = number;
+        bigUnder = under;
+        return this;
+    }
+
+    NoticeView weather() {
+        weatherPic = true;
+        return this;
+    }
+
+    NoticeView qr(String[] rows, String text) {
+        qrRows = rows;
+        qrText = text;
         return this;
     }
 
@@ -152,7 +208,7 @@ final class NoticeView extends View {
         fill.setShader(null);
         fill.setColor(Ui.alpha(0xFF000000, 0.55f * a));
         c.drawRect(0, 0, w, h, fill);
-        float mh = picture ? 980 : artIcons != null ? 720 : 520, my = (1080 - mh) / 2f;
+        float mh = picture ? 980 : weatherPic ? 800 : (artIcons != null || bigNumber != null) ? 720 : qrRows != null ? 780 : 520, my = (1080 - mh) / 2f;
         c.save();
         float s = 0.97f + 0.03f * a;
         c.scale(s, s, w / 2f, h / 2f);
@@ -212,6 +268,52 @@ final class NoticeView extends View {
                 c.drawText(artLabels[i], ix, (my + 440 + 120) * k, lab);
             }
             moving = true;
+        }
+
+        if (bigNumber != null && !picture) {
+            artT += dt;
+            float p = Ui.clamp(artPop[0].value);
+            artPop[0].target = artT > 0.15f ? 1 : 0;
+            moving |= artPop[0].step(dt);
+            p = Ui.clamp(artPop[0].value);
+            Paint big = Ui.text(Logo.wordmark(getContext()), 200 * k * (0.85f + 0.15f * p), 0xFFFFFFFF);
+            big.setTextAlign(Paint.Align.CENTER);
+            float bw = big.measureText(bigNumber);
+            big.setShader(new LinearGradient(cx - bw / 2, 0, cx + bw / 2, 0, Brand.accents(), null, Shader.TileMode.CLAMP));
+            big.setAlpha(Math.round(255 * p * a));
+            c.drawText(bigNumber, cx, (my + 440) * k, big);
+            Paint under = new Paint(buttonPaint);
+            under.setColor(0xDDFFFFFF);
+            under.setTextSize(36 * k);
+            under.setAlpha(Math.round(221 * p * a));
+            c.drawText(bigUnder, cx, (my + 500) * k, under);
+            moving = true;
+        }
+        if (weatherPic && !picture) {
+            widget.advance(dt);
+            float cw = 560 * k, ch = 250 * k;
+            tmp.set(cx - cw / 2, (my + 330) * k, cx + cw / 2, (my + 330) * k + ch);
+            widget.draw(c, getContext(), tmp, a, null, null, null);
+            moving = true;
+        }
+        if (qrRows != null && !picture) {
+            float qs = 300 * k, qy = (my + 300) * k, mod = qs / (qrRows.length + 2);   // two modules of white around the code
+            tmp.set(cx - qs / 2, qy, cx + qs / 2, qy + qs);
+            fill.setShader(null);
+            fill.setColor(Ui.alpha(0xFFFFFFFF, a));
+            c.drawRoundRect(tmp, 18 * k, 18 * k, fill);
+            fill.setColor(Ui.alpha(0xFF171519, a));
+            for (int row = 0; row < qrRows.length; row++) {
+                for (int col = 0; col < qrRows[row].length(); col++) {
+                    if (qrRows[row].charAt(col) != '1') continue;
+                    float mx = cx - qs / 2 + (col + 1) * mod, my2 = qy + (row + 1) * mod;
+                    c.drawRect(mx - 0.3f, my2 - 0.3f, mx + mod + 0.3f, my2 + mod + 0.3f, fill);
+                }
+            }
+            Paint t2 = new Paint(buttonPaint);
+            t2.setColor(0xDDFFFFFF);
+            t2.setTextSize(28 * k);
+            c.drawText(qrText, cx, qy + qs + 52 * k, t2);
         }
 
         // The buttons, centered: [secondary] [main].

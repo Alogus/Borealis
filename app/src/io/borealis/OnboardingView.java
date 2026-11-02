@@ -35,7 +35,7 @@ final class OnboardingView extends View {
     /** `welcome` is true when the person finished it (the opening for new people plays), false when they skipped it. */
     interface Done { void done(boolean welcome); }
 
-    private static final int S_WELCOME = 0, S_LANG = 1, S_NAME = 2, S_HOME = 3, S_PERM = 4, S_DONE = 5, S_SHELF = 6;
+    private static final int S_WELCOME = 0, S_LANG = 1, S_NAME = 2, S_HOME = 3, S_PERM = 4, S_DONE = 5, S_SHELF = 6, S_PLACE = 7;
     private static boolean langChosen;    // nothing is selected on the language screen until the person picks
     private static boolean homeChosen;   // nothing is selected on "what do you want to see first" until the person picks
     private static int savedStep;   // the step's id; survives the activity being rebuilt (a language change, a system screen)
@@ -68,7 +68,7 @@ final class OnboardingView extends View {
     // MARK: - Elements
 
     private static final int ROW = 0, LANGUAGE = 1, AVATAR = 2, OPTION = 3, SWITCH = 4, BTN = 5, PRIMARY = 6, LINK = 7, EDIT = 8;
-    private static final int BUTTON_ROW = 9, LINK_ROW = 10;
+    private static final int BUTTON_ROW = 9, LINK_ROW = 10, FORM = 11;
 
     private static final class El {
         int kind, row, idx;
@@ -85,6 +85,9 @@ final class OnboardingView extends View {
 
     private final Done done;
     private final ShelfDemo shelfDemo = new ShelfDemo();
+    private final PlaceWidget placeWidget = new PlaceWidget();
+    private final PlaceForm form;
+    private float frameDt = 1 / 60f;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Click click;
     private final Spoken spoken;
@@ -124,6 +127,7 @@ final class OnboardingView extends View {
         super(c);
         this.done = done;
         click = new Click(c);
+        form = new PlaceForm(c, this::invalidate);
         step = indexOf(savedStep);
         cycling = Prefs.language().equals("auto");
         for (int i = 0; i < pop.length; i++) pop[i] = new Spring(0.28f, 0.85f, 0);
@@ -165,6 +169,7 @@ final class OnboardingView extends View {
     @Override protected void onDetachedFromWindow() {
         handler.removeCallbacksAndMessages(null);
         click.release();
+        form.release();
         super.onDetachedFromWindow();
     }
 
@@ -180,7 +185,7 @@ final class OnboardingView extends View {
 
     /** The steps in order: the notification access is only asked when "Continue watching" was chosen. */
     private int[] flow() {
-        return !homeChosen || Prefs.cardsMode().equals("recent") ? new int[] {S_WELCOME, S_LANG, S_NAME, S_HOME, S_PERM, S_SHELF, S_DONE} : new int[] {S_WELCOME, S_LANG, S_NAME, S_HOME, S_SHELF, S_DONE};
+        return !homeChosen || Prefs.cardsMode().equals("recent") ? new int[] {S_WELCOME, S_LANG, S_NAME, S_PLACE, S_HOME, S_PERM, S_SHELF, S_DONE} : new int[] {S_WELCOME, S_LANG, S_NAME, S_PLACE, S_HOME, S_SHELF, S_DONE};
     }
 
     private int indexOf(int id) {
@@ -199,6 +204,7 @@ final class OnboardingView extends View {
             case S_WELCOME: return T("Boas-vindas", "Welcome", "Bienvenida");
             case S_LANG: return T("Idioma", "Language", "Idioma");
             case S_NAME: return T("Nome", "Name", "Nombre");
+            case S_PLACE: return T("Cidade", "City", "Ciudad");
             case S_HOME: return T("Tela inicial", "Home screen", "Pantalla de inicio");
             case S_PERM: return T("Permissão", "Permission", "Permiso");
             case S_SHELF: return T("Estante", "Shelf", "Estante");
@@ -252,6 +258,7 @@ final class OnboardingView extends View {
             case S_LANG: return T("Em que idioma você se sente mais à vontade?", "Which language feels most like home?", "¿En qué idioma te sientes más cómodo?");
             case S_NAME: return pickingAvatar ? T("Escolha seu avatar", "Choose your avatar", "Elige tu avatar")
                     : T("Como você quer que eu te chame?", "What should we call you?", "¿Cómo quieres que te llame?");
+            case S_PLACE: return T("De que cidade você quer o clima?", "Which city do you want the weather for?", "¿De qué ciudad quieres el clima?");
             case S_HOME: return T("O que você quer ver primeiro?", "What do you want to see first?", "¿Qué quieres ver primero?");
             case S_PERM: return T("Para continuar de onde você parou", "To pick up where you left off", "Para continuar donde lo dejaste");
             case S_SHELF: return T("Personalize o seu estante", "Make the shelf yours", "Personaliza tu estante");
@@ -277,6 +284,9 @@ final class OnboardingView extends View {
             case S_LANG: return T("Escolha o idioma do Borealis. Dá para mudar depois em Configurações.", "Choose Borealis's language. You can change it later in Settings.", "Elige el idioma de Borealis. Puedes cambiarlo después en Configuración.");
             case S_NAME: return pickingAvatar ? T("Escolha o que mais combina com você.", "Pick the one that suits you.", "Elige el que más vaya contigo.")
                     : T("Você pode mudar isso depois em Configurações.", "You can change this later in Settings.", "Puedes cambiarlo después en Configuración.");
+            case S_PLACE: return T("Escolha o país e a cidade para ver o clima e o pôr do sol do seu lugar. Dá para mudar depois em Ajustes.",
+                    "Pick your country and city to see the weather and sunset of your place. You can change it later in Settings.",
+                    "Elige tu país y tu ciudad para ver el clima y el atardecer de tu lugar. Puedes cambiarlo después en Ajustes.");
             case S_HOME: return T("Escolha como será a sua tela inicial. Dá para mudar quando quiser em Configurações.",
                     "Choose how your home screen will look. You can change it any time in Settings.",
                     "Elige cómo se verá tu pantalla de inicio. Puedes cambiarlo cuando quieras en Configuración.");
@@ -414,6 +424,14 @@ final class OnboardingView extends View {
             name.r.set((cx - 380) * k, (MY + 486) * k, (cx + 380) * k, (MY + 570) * k);
             name.act = this::askName;
             els.add(name);
+        } else if (id == S_PLACE) {
+            El place = new El();   // the two fields (PlaceForm draws them and takes their keys)
+            place.kind = FORM;
+            place.row = 0;
+            place.label = T("País e cidade", "Country and city", "País y ciudad");
+            place.spoken = place.label + ". " + T("Aperte OK para escolher.", "Press OK to choose.", "Pulsa OK para elegir.");
+            place.r.set((cx - PlaceForm.W / 2) * k, (MY + 495) * k, (cx + PlaceForm.W / 2) * k, (MY + 495 + PlaceForm.HEIGHT) * k);
+            els.add(place);
         } else if (id == S_HOME) {
             float cw = 600, gap = 40, x = cx - (2 * cw + gap) / 2;
             boolean recent = Prefs.cardsMode().equals("recent");
@@ -549,6 +567,7 @@ final class OnboardingView extends View {
         if (stepId() == S_LANG && !langChosen) return;
         if (stepId() == S_NAME && Prefs.name().isEmpty()) return;
         if (stepId() == S_HOME && !homeChosen) return;
+        if (stepId() == S_PLACE) form.save();   // only when both are chosen
         if (stepId() == S_PERM && !playbackOn()) {   // no access: say what that means before going on
             warnPerm = true;
             confirm = true;
@@ -655,22 +674,18 @@ final class OnboardingView extends View {
     }
 
     private void askName() {
-        final android.widget.EditText input = new android.widget.EditText(getContext());
-        input.setSingleLine(true);
-        input.setText(Prefs.name());
-        input.setSelection(input.getText().length());
-        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS);
-        new android.app.AlertDialog.Builder(getContext())
-                .setTitle(T("Como você quer que eu te chame?", "What should we call you?", "¿Cómo quieres que te llame?"))
-                .setView(input)
-                .setPositiveButton("OK", (d, which) -> {
-                    Prefs.setName(input.getText().toString());
-                    built = false;
-                    invalidate();
-                    spoken.focusMoved();
-                })
-                .setNegativeButton(T("Cancelar", "Cancel", "Cancelar"), null)
-                .show();
+        TextEntry.Request r = new TextEntry.Request();
+        r.title = T("Como você quer que eu te chame?", "What should we call you?", "¿Cómo quieres que te llame?");
+        r.hint = T("Digite o seu nome", "Type your name", "Escribe tu nombre");
+        r.initial = Prefs.name();
+        r.maxLen = 24;
+        r.done = (text, o) -> {
+            Prefs.setName(text);
+            built = false;
+            invalidate();
+            spoken.focusMoved();
+        };
+        TextEntry.show(getContext(), r);
     }
 
     /** The notification access: always opens the system screen (turn it on, or change it if it is already on). */
@@ -698,6 +713,10 @@ final class OnboardingView extends View {
         int code = e.getKeyCode();
         if (down) intro = "";
         ensureLayout();
+        if (stepId() == S_PLACE && !confirm && focus >= 0 && focus < els.size() && els.get(focus).kind == FORM && form.onKey(e)) {
+            invalidate();   // the country list, the city search: the form uses these keys
+            return true;
+        }
         boolean nav = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT || code == KeyEvent.KEYCODE_DPAD_UP
                 || code == KeyEvent.KEYCODE_DPAD_DOWN || code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
         if (!showFocus && nav) {
@@ -843,6 +862,7 @@ final class OnboardingView extends View {
         paints();
         long now = System.nanoTime();
         float dt = lastNanos == 0 ? 1 / 60f : Math.min(0.05f, (now - lastNanos) / 1e9f);
+        frameDt = dt;
         lastNanos = now;
         appear.target = 1;
         boolean moving = appear.step(dt);
@@ -930,6 +950,14 @@ final class OnboardingView extends View {
                 c.drawText(stepTitle(), cx, top + 110 * k, title);
                 drawWrapped(c, stepBody(), cx, top + 136 * k, 900 * k, body, 1);
                 return false;
+            case S_PLACE: {
+                c.drawText(stepTitle(), cx, top + 110 * k, title);
+                drawWrapped(c, stepBody(), cx, top + 136 * k, 1000 * k, body, 2);
+                tmp.set(cx - 224 * k, top + 255 * k, cx + 224 * k, top + 455 * k);   // the same card as in the news
+                placeWidget.advance(frameDt);
+                placeWidget.draw(c, getContext(), tmp, 1f, form.widgetCity(), form.widgetSymbol(), form.widgetTemp());
+                return true;
+            }
             case S_HOME:
                 c.drawText(stepTitle(), cx, top + 110 * k, title);
                 drawWrapped(c, stepBody(), cx, top + 136 * k, 1000 * k, body, 2);
@@ -1246,6 +1274,9 @@ final class OnboardingView extends View {
                 c.drawCircle(e.selected ? sx + sw - sh / 2 : sx + sh / 2, sy + sh / 2, sh / 2 - 6 * k, fill);
                 break;
             }
+            case FORM:
+                form.draw(c, k, MX + MW / 2, MY + 495, index == focus && !confirm, frameDt);
+                break;
             default: {   // ROW: label left, value right
                 float rr = 24 * k;
                 fill.setShader(null);

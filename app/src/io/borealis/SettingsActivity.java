@@ -44,10 +44,12 @@ import java.util.Set;
  * opens the Borealis / Original choice (with a check on the current one); the switch runs in the main process
  * (HomeMode) and this screen only asks for it and follows the state file.
  */
-public class SettingsActivity extends Activity {
+public class SettingsActivity extends Activity implements TextEntry.Host {
     private SettingsView view;
     private android.widget.FrameLayout root;   // holds the view; the screensaver picker adds its live preview on top
     private Dreamer preview;   // "Screensaver": the screensaver right here, without changing the system setting
+    private PlaceScreen place;   // "Weather location": a screen over the settings
+    private TextEntryView entry;   // Borealis's keyboard, over everything
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -99,6 +101,10 @@ public class SettingsActivity extends Activity {
             getIntent().removeExtra("shelf");
             view.showShelfEditor();
         }
+        if (getIntent().getBooleanExtra("place", false)) {   // from the news modal "Weather location"
+            getIntent().removeExtra("place");
+            view.askPlace();
+        }
         if (getIntent().getBooleanExtra("hidden", false)) {   // from the card "Hidden apps" at the end of All Apps
             getIntent().removeExtra("hidden");
             view.showHiddenApps();
@@ -146,8 +152,33 @@ public class SettingsActivity extends Activity {
                     return super.dispatchKeyEvent(event);
             }
         }
+        if (entry != null) return entry.onKey(event) || super.dispatchKeyEvent(event);
+        if (place != null) return place.onKey(event) || super.dispatchKeyEvent(event);
         if (view != null && view.onKey(event)) return true;
         return super.dispatchKeyEvent(event);
+    }
+
+    /** Borealis's keyboard (see TextEntry): over the settings and over any screen of them. */
+    @Override public void askText(TextEntry.Request r) {
+        if (root == null || entry != null) return;
+        final TextEntryView[] mine = new TextEntryView[1];
+        mine[0] = new TextEntryView(this, r, () -> {
+            if (mine[0] != null) root.removeView(mine[0]);
+            if (entry == mine[0]) entry = null;
+        });
+        entry = mine[0];
+        root.addView(entry, new android.widget.FrameLayout.LayoutParams(-1, -1));
+    }
+
+    /** The weather location screen (country and city), over the settings; the buttons close it. */
+    void showPlace() {
+        if (place != null || root == null) return;
+        place = new PlaceScreen(this, () -> {
+            if (place != null) root.removeView(place);
+            place = null;
+            if (view != null) view.invalidate();
+        });
+        root.addView(place, new android.widget.FrameLayout.LayoutParams(-1, -1));
     }
 
     void showPreview() {
@@ -1129,7 +1160,7 @@ public class SettingsActivity extends Activity {
             switch (group) {
                 case 1: return sortedByName(WALLPAPER_ROW, ID_SAVER, ID_SPLASH, ID_SOUND, ID_CLICKS);
                 case 2: {
-                    int[] top = sortedByName(5, 6, ID_SHELF, ID_HIDDEN, 7, 8);
+                    int[] top = sortedByName(5, 6, ID_SHELF, ID_HIDDEN, ID_PLACE, 7, 8);
                     int coins = Math.max(0, settingLabels().length - COIN_ROWS);
                     int[] coinIds = new int[coins];
                     for (int i = 0; i < coins; i++) coinIds[i] = COIN_ROWS + i;
@@ -1165,6 +1196,7 @@ public class SettingsActivity extends Activity {
                 case ID_SPLASH: return Ui.tr("Logo do launcher ao ligar a TV", "Launcher logo when the TV turns on", "Logo del launcher al encender la TV");
                 case ID_SOUND: return Ui.tr("Som de abertura", "Startup sound", "Sonido de inicio");
                 case ID_CLICKS: return Ui.tr("Som dos cliques", "Click sounds", "Sonido de los clics");
+                case ID_PLACE: return Ui.tr("Localização do clima", "Weather location", "Ubicación del clima");
                 case ID_TV: return Ui.tr("Ajustes da TV", "TV Settings", "Ajustes de la TV");
                 case ID_REMOTE: return Ui.tr("Botão de ajustes do controle", "Remote's settings button", "Botón de ajustes del control");
                 case ID_WELCOME: return Ui.tr("Repetir as boas-vindas", "Replay the welcome", "Repetir bienvenida");
@@ -1183,6 +1215,7 @@ public class SettingsActivity extends Activity {
                 case ID_SPLASH: return onOff(Prefs.splash());
                 case ID_SOUND: return onOff(Prefs.startupSound());
                 case ID_CLICKS: return onOff(Prefs.clicks());
+                case ID_PLACE: return Prefs.city().isEmpty() ? Ui.tr("Escolher", "Choose", "Elegir") : Prefs.city();
                 case ID_REMOTE: return onOff(remoteButtonOn());
                 case ID_SHELF: case ID_TV: case ID_WELCOME: return "";
                 case ID_HIDDEN: { int n = Prefs.hiddenApps().size(); return n == 0 ? "" : String.valueOf(n); }
@@ -1467,7 +1500,7 @@ public class SettingsActivity extends Activity {
         /** Home Settings: language, temperature, theme, weather, quotes, then one row per coin. */
         private static final int COIN_ROWS = 10, WALLPAPER_ROW = 9;
         /** Rows of a group that are not in the old Home Settings list: screensaver, shelf, launcher, TV settings. */
-        private static final int ID_SAVER = 100, ID_SHELF = 101, ID_LAUNCHER = 102, ID_TV = 103, ID_SPLASH = 104, ID_WELCOME = 105, ID_SOUND = 106, ID_REMOTE = 107, ID_UPDATE = 108, ID_UPDATE_AUTO = 109, ID_HIDDEN = 110, ID_CLICKS = 111;
+        private static final int ID_SAVER = 100, ID_SHELF = 101, ID_LAUNCHER = 102, ID_TV = 103, ID_SPLASH = 104, ID_WELCOME = 105, ID_SOUND = 106, ID_REMOTE = 107, ID_UPDATE = 108, ID_UPDATE_AUTO = 109, ID_HIDDEN = 110, ID_CLICKS = 111, ID_PLACE = 112;
         private static final float CARD_H = 130, CARD_GAP = 14;
 
         private boolean dollar() {
@@ -1635,6 +1668,7 @@ public class SettingsActivity extends Activity {
                 case ID_UPDATE_AUTO: Prefs.setUpdateAuto(!Prefs.updateAuto()); return;
                 case ID_REMOTE: askRemoteButton(); return;
                 case ID_CLICKS: Prefs.setClicks(!Prefs.clicks()); return;
+                case ID_PLACE: askPlace(); return;
                 case ID_SOUND: Prefs.setStartupSound(!Prefs.startupSound()); if (Prefs.startupSound()) StartupSound.play(getContext()); return;
                 default:
                     if (!Prefs.quotes()) return;
@@ -1680,6 +1714,11 @@ public class SettingsActivity extends Activity {
 
         void showHiddenApps() {
             openHiddenApps(true);
+        }
+
+        /** The weather location: country, city, the matches (see Places). From the "new" modal it opens straight away. */
+        void askPlace() {
+            activity.showPlace();
         }
 
         private void openHiddenApps(boolean fromHome) {
@@ -1861,22 +1900,18 @@ public class SettingsActivity extends Activity {
                     .show();
         }
 
-        /** Asks how the user wants to be greeted (the TV's keyboard opens when the field is selected). */
+        /** Asks how the user wants to be greeted, with Borealis's own keyboard. */
         private void askName() {
-            final android.widget.EditText input = new android.widget.EditText(getContext());
-            input.setSingleLine(true);
-            input.setText(Prefs.name());
-            input.setSelection(input.getText().length());
-            input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS);
-            new android.app.AlertDialog.Builder(getContext())
-                    .setTitle(Ui.tr("Como você quer ser chamado?", "What should we call you?", "¿Cómo quieres que te llame?"))
-                    .setView(input)
-                    .setPositiveButton("OK", (d, which) -> {
-                        Prefs.setName(input.getText().toString());
-                        invalidate();
-                    })
-                    .setNegativeButton(Ui.tr("Cancelar", "Cancel", "Cancelar"), null)
-                    .show();
+            TextEntry.Request r = new TextEntry.Request();
+            r.title = Ui.tr("Como você quer ser chamado?", "What should we call you?", "¿Cómo quieres que te llame?");
+            r.hint = Ui.tr("Digite o seu nome", "Type your name", "Escribe tu nombre");
+            r.initial = Prefs.name();
+            r.maxLen = 24;
+            r.done = (text, o) -> {
+                Prefs.setName(text);
+                invalidate();
+            };
+            TextEntry.show(getContext(), r);
         }
 
         private boolean scrolling() {

@@ -441,16 +441,19 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         noticeIfNewer();
     }
 
+    /** The bell is always the first corner button. */
     private int bellOffset() {
         return !lightButtons.isEmpty() && lightButtons.get(0).kind == HomeApps.UPDATE ? 1 : 0;
     }
 
-    /** The bell appears (or goes) when a new version is found (or installed); the focus stays on the same button. */
+    /** True while the bell carries a new version (its dot and its name). */
+    private boolean bellUpdate;
+
+    /** The bell stays; when a new version is found (or installed) its name and dot change. The focus stays where it is. */
     private void refreshUpdateButton() {
-        boolean has = bellOffset() == 1, want = !Update.newer(getContext()).isEmpty();
-        if (has == want) return;
+        boolean want = !Update.newer(getContext()).isEmpty();
+        if (want == bellUpdate && !lightButtons.isEmpty()) return;
         makeLightButtons();
-        if (topIndex >= 3) topIndex = Math.max(3, topIndex + (want ? 1 : -1));
         layoutButtons();
         retarget(true);
         status.invalidate();
@@ -590,9 +593,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void makeLightButtons() {
         lightButtons.clear();
         String newVersion = Update.newer(getContext());
-        if (!newVersion.isEmpty()) {   // a new version: the bell, first at the left
-            lightButtons.add(HomeApps.action(HomeApps.UPDATE, "update", Ui.tr("Atualizar para ", "Update to ", "Actualizar a ") + newVersion, "bell"));
-        }
+        bellUpdate = !newVersion.isEmpty();
+        // The bell is always there, first at the left; a new version gives it a dot and its name.
+        lightButtons.add(HomeApps.action(HomeApps.UPDATE, "update",
+                bellUpdate ? Ui.tr("Atualizar para ", "Update to ", "Actualizar a ") + newVersion : Ui.tr("Notificações", "Notifications", "Notificaciones"), "bell"));
         lightButtons.add(HomeApps.action(HomeApps.WIFI, "wifi", "Wi-Fi", "wifi"));
         lightButtons.add(HomeApps.action(HomeApps.BLUETOOTH, "bluetooth", "Bluetooth", "bluetooth"));
         lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("Entrada de vídeo", "Video input", "Entrada de video"), "hdmi"));
@@ -2857,8 +2861,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             }
             return;
         }
-        if (it.kind == HomeApps.UPDATE) {   // the bell
-            askUpdate();
+        if (it.kind == HomeApps.UPDATE) {   // the bell: the update, or the news again
+            if (bellUpdate) askUpdate();
+            else if (activity instanceof HomeActivity) ((HomeActivity) activity).showNewsHistory();
             return;
         }
         if (!sheetOpen && zone == Z_TOP && (it.kind == HomeApps.INPUTS || it.kind == HomeApps.WIFI || it.kind == HomeApps.BLUETOOTH || it.kind == HomeApps.SETTINGS)) {   // only the corner buttons open menus
@@ -3687,7 +3692,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 fill.setAlpha(255);
             }
             Symbols.draw(getContext(), c, it.symbol, cell.left + ch / 2, cell.centerY(), 28 * k * s, 0xFFFFFFFF);
-            if (it.kind == HomeApps.UPDATE) {   // a small dot: there is something new
+            if (it.kind == HomeApps.UPDATE && bellUpdate) {   // a small dot: there is something new
                 fill.setShader(null);
                 fill.setColor(MELON);
                 c.drawCircle(cell.left + ch * 0.72f, cell.top + ch * 0.26f, 7 * k * s, fill);

@@ -235,7 +235,7 @@ final class HomeData {
         return f.parse(iso).getTime();
     }
 
-    private static String get(String url) throws IOException {
+    static String get(String url) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setConnectTimeout(6000);
         c.setReadTimeout(6000);
