@@ -2,6 +2,10 @@
 
 Newest first. / Lo más nuevo primero.
 
+## 3.45.4
+- EN: Fixes the Launcher row stuck on "Connecting…" after an update cut a switch short; the Home button now works in Plan B in that case.
+- ES: Arregla la fila Launcher que se quedaba en "Conectando…" cuando una actualización cortaba un cambio a la mitad; el botón Inicio ahora funciona en el Plan B en ese caso.
+
 ## 3.45.2
 - EN: The *What's new* notice now has an illustration.
 - ES: El aviso de *Novedades* ahora tiene una ilustración.

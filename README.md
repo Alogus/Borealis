@@ -59,6 +59,8 @@ Download `Borealis.apk` from [Releases](../../releases), or on the TV open **Dow
 
 You can go back any time: in Borealis's settings choose **Original** and the TV's own home screen returns.
 
+> **Before uninstalling Borealis, give the TV its own home screen back:** open Borealis → Settings → **Launcher** → **Original** and wait until it says it is done. Only then uninstall. In Borealis mode the TV's own launcher and some apps are turned off to make it fast; if you uninstall first, they stay off and the TV can get stuck at the startup logo.
+
 **USB debugging is recommended.** With it, Borealis becomes your home screen for real. If your TV does not allow it (the port is closed, or the *Allow USB debugging?* question never appears), Borealis switches to **Plan B** (experimental, no computer): in Settings → Accessibility turn on Borealis and the Home button opens it; press Home twice quickly to open the TV's own home screen.
 
 ## Compatibility
@@ -77,6 +79,7 @@ Untested: Fire TV, VIDAA, webOS and Tizen are not supported yet. Tell us in an [
 - **"Allow USB debugging?" never appears.** On the TV: Developer options → *Revoke USB debugging authorizations*, then open Borealis again. If it still does not appear, Borealis switches to Plan B by itself.
 - **The Wi-Fi disappears when changing the home screen.** Some TVs delete the Wi-Fi networks saved by their setup app when it is turned off. Borealis detects this and keeps the original launcher on (Plan B) so you do not lose the connection.
 - **Can't turn Borealis on in Accessibility (Android 13/14).** Settings → Apps → Borealis → ⋮ → *Allow restricted settings*.
+- **The TV is stuck on the logo after uninstalling Borealis.** The launcher that Borealis turned off is still off. If you can reach Settings → Apps → *See all apps*, find the TV's launcher (on Google TV it is usually *Google TV* or *Android TV Home*) and choose **Enable**. From a computer: `adb shell pm list packages -d` shows what is off, and `adb shell pm enable <package>` turns it back on. If you cannot get in, tell us your TV model in an [issue](../../issues).
 - More in [INSTALL.md](INSTALL.md) and the [CHANGELOG](CHANGELOG.md).
 
 ## Build it yourself
@@ -165,6 +168,8 @@ Descarga `Borealis.apk` desde [Releases](../../releases), o en la TV abre **Down
 
 Puedes volver atrás cuando quieras: en los ajustes de Borealis elige **Original** y vuelve el inicio de tu TV.
 
+> **Antes de desinstalar Borealis, devuelve a la TV su propio inicio:** abre Borealis → Ajustes → **Launcher** → **Original** y espera a que diga que terminó. Solo entonces desinstala. En el modo Borealis se apagan el launcher de la TV y algunas apps para que todo sea rápido; si desinstalas antes, se quedan apagados y la TV puede quedarse en el logo de arranque.
+
 **La depuración USB es lo recomendado.** Con ella, Borealis se vuelve tu pantalla de inicio de verdad. Si tu TV no la permite (el puerto está cerrado o nunca aparece la pregunta *¿Permitir depuración USB?*), Borealis pasa al **Plan B** (experimental, sin computador): en Ajustes → Accesibilidad activa Borealis y el botón Inicio lo abre; presiona Inicio dos veces rápido para abrir el inicio propio de la TV.
 
 ## Compatibilidad
@@ -183,6 +188,7 @@ Sin soporte todavía: Fire TV, VIDAA, webOS y Tizen. Cuéntanos en un [issue](..
 - **Nunca aparece "¿Permitir depuración USB?".** En la TV: Opciones para desarrolladores → *Revocar autorizaciones de depuración USB* y abre Borealis de nuevo. Si sigue sin aparecer, Borealis pasa solo al Plan B.
 - **El Wi-Fi desaparece al cambiar el inicio.** Algunas TVs borran las redes Wi-Fi guardadas por su app de configuración cuando se apaga. Borealis lo detecta y deja encendido el launcher original (Plan B) para que no pierdas la conexión.
 - **No puedo activar Borealis en Accesibilidad (Android 13/14).** Ajustes → Aplicaciones → Borealis → ⋮ → *Permitir ajustes restringidos*.
+- **La TV se queda en el logo después de desinstalar Borealis.** El launcher que Borealis apagó sigue apagado. Si puedes entrar a Ajustes → Aplicaciones → *Ver todas las apps*, busca el launcher de la TV (en Google TV suele ser *Google TV* o *Android TV Home*) y elige **Habilitar**. Desde un computador: `adb shell pm list packages -d` muestra lo que está apagado y `adb shell pm enable <paquete>` lo vuelve a encender. Si no puedes entrar, cuéntanos tu modelo de TV en un [issue](../../issues).
 - Más en [INSTALL.md](INSTALL.md) y el [CHANGELOG](CHANGELOG.md).
 
 ## Mantenimiento y soporte

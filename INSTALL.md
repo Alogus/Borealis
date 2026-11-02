@@ -33,7 +33,7 @@ botón Home lo abrirá (sin computador). Mira "Si algo bloquea la instalación" 
    (the TV may ask again to allow debugging: *Always allow*).
 
 **Go back to the original home screen:** Borealis → Settings → choose *Original*.
-**Uninstall:** first choose *Original*, then `adb uninstall io.borealis`.
+**Uninstall: first choose *Original* (Borealis → Settings → Launcher → Original) and wait until it says it is done, then uninstall.** If you uninstall first, the TV's launcher stays off and the TV can get stuck at the startup logo (to fix it: Settings → Apps → See all apps → the TV's launcher → Enable, or `adb shell pm list packages -d` and `adb shell pm enable <package>`). From a computer: `adb uninstall io.borealis`.
 If something fails, open an issue on the project's page with what you saw.
 
 ## Español
@@ -50,7 +50,7 @@ If something fails, open an issue on the project's page with what you saw.
    (la TV puede volver a preguntar por la depuración: *Siempre permitir*).
 
 **Volver al inicio original:** Borealis → Ajustes → elige *Original*.
-**Desinstalar:** primero elige *Original*, luego `adb uninstall io.borealis`.
+**Desinstalar: primero elige *Original* (Borealis → Ajustes → Launcher → Original) y espera a que diga que terminó; luego desinstala.** Si desinstalas antes, el launcher de la TV queda apagado y la TV puede quedarse en el logo de arranque (para arreglarlo: Ajustes → Aplicaciones → Ver todas las apps → el launcher de la TV → Habilitar, o `adb shell pm list packages -d` y `adb shell pm enable <paquete>`). Desde un computador: `adb uninstall io.borealis`.
 Si algo falla, abre un "issue" en la página del proyecto contando qué viste.
 
 ## If something blocks the install / Si algo bloquea la instalación
