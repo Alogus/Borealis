@@ -47,6 +47,7 @@ public class HomeActivity extends Activity implements TextEntry.Host {
         }
         Ui.init(this);
         HomeMode.clearStaleBusy(this);
+        Backdrop.preparePanel(this);   // the blurred backdrop of the keyboard, ready before it opens
         home = new HomeView(this);
         root = new FrameLayout(this);
         root.addView(home, new FrameLayout.LayoutParams(-1, -1));

@@ -62,6 +62,7 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             finish();
             return;
         }
+        Backdrop.preparePanel(this);   // the blurred backdrop of the keyboard and the weather screen, ready before they open
         view = new SettingsView(this);
         root = new android.widget.FrameLayout(this);
         root.addView(view, new android.widget.FrameLayout.LayoutParams(-1, -1));

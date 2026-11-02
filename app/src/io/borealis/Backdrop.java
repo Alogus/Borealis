@@ -189,10 +189,40 @@ final class Backdrop {
         return px;
     }
 
+    private static Bitmap panelSoft;
+    private static int panelIdx = -1;
+
+    /**
+     * The backdrop of the full-screen panels (the weather location, the keyboard): the wallpaper in use, blurred, exactly the
+     * one the settings draw (draw it at 80% over the night black). Made once and kept; null if it could not be made.
+     */
+    static synchronized Bitmap panel(android.content.Context c) {
+        int idx = Prefs.wallpaper();
+        if (panelSoft != null && panelIdx == idx) return panelSoft;
+        try (java.io.InputStream in = c.getAssets().open(Prefs.WALLPAPER_FILES[idx])) {
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inSampleSize = 4;
+            Bitmap full = android.graphics.BitmapFactory.decodeStream(in, null, o);
+            if (full == null) return null;
+            panelSoft = blurred(full);
+            panelIdx = idx;
+            full.recycle();
+            return panelSoft;
+        } catch (Exception | OutOfMemoryError e) {
+            return null;
+        }
+    }
+
+    /** Makes it ahead of time (off the main thread), so a panel opens with no wait. */
+    static void preparePanel(final android.content.Context c) {
+        final android.content.Context app = c.getApplicationContext();
+        new Thread(() -> panel(app), "panel-backdrop").start();
+    }
+
     /** A very soft version of a picture for the backs of full-screen panels: reduced step by step, then blurred (3 box passes), 192 × 108. */
     static Bitmap blurred(Bitmap full) {
         int w = 192, h = 108;
-        int[] px = reduce(full, w, h, 5, 3);
+        int[] px = reduce(full, w, h, 7, 3);
         Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         out.setPixels(px, 0, w, 0, 0, w, h);
         return out;

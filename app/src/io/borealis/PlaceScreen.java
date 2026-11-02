@@ -35,7 +35,7 @@ final class PlaceScreen extends View {
     private boolean inForm = true, okDown, backDown, closed;
     private int btn = 1;   // 0 = Back, 1 = Save
     private long lastNanos;
-    private Bitmap wall;
+    private final Bitmap wall;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), line = new Paint(Paint.ANTI_ALIAS_FLAG), photo = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final RectF box = new RectF(), tmp = new RectF(), backRect = new RectF(), saveRect = new RectF();
     private Paint titleP, buttonP;
@@ -49,16 +49,7 @@ final class PlaceScreen extends View {
         form = new PlaceForm(c, this::invalidate);
         setContentDescription(Ui.tr("Localização do clima", "Weather location", "Ubicación del clima"));
         setFocusable(false);
-        // The wallpaper, really blurred (a small, soft copy stretched back up).
-        try (InputStream in = c.getAssets().open(Prefs.WALLPAPER_FILES[Prefs.wallpaper()])) {
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inSampleSize = 2;
-            Bitmap full = BitmapFactory.decodeStream(in, null, o);
-            wall = full == null ? null : Backdrop.blurred(full);
-            if (full != null) full.recycle();
-        } catch (Exception | OutOfMemoryError ignored) {
-            wall = null;
-        }
+        wall = Backdrop.panel(c);   // the same blurred backdrop as the settings behind it
     }
 
     @Override protected void onDetachedFromWindow() {
@@ -152,16 +143,15 @@ final class PlaceScreen extends View {
         bpop[1].target = !inForm && btn == 1 ? 1 : 0;
         moving |= bpop[0].step(dt) | bpop[1].step(dt);
 
-        // The wallpaper, soft, under a dark veil.
+        // The settings' own backdrop (the wallpaper blurred at 80% over the night black): the same picture as the screen behind, so nothing flashes.
         fill.setShader(null);
         fill.setColor(Brand.INK);
         c.drawRect(0, 0, w, h, fill);
         if (wall != null) {
             box.set(0, 0, w, h);
+            photo.setAlpha(204);
             c.drawBitmap(wall, null, box, photo);
         }
-        fill.setColor(Ui.alpha(Brand.INK, 0.62f * a));
-        c.drawRect(0, 0, w, h, fill);
 
         int layer = a < 0.999f ? c.saveLayerAlpha(0, 0, w, h, Math.round(255 * a)) : -1;
         float cx = w / 2f;

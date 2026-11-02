@@ -71,16 +71,7 @@ final class TextEntryView extends View {
         setFocusable(false);
         shift = req.words && (text.length() == 0 || text.charAt(text.length() - 1) == ' ');
         buildRows();
-        // The wallpaper, really blurred (a small, soft copy stretched back up).
-        try (InputStream in = c.getAssets().open(Prefs.WALLPAPER_FILES[Prefs.wallpaper()])) {
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inSampleSize = 2;
-            Bitmap full = BitmapFactory.decodeStream(in, null, o);
-            wall = full == null ? null : Backdrop.blurred(full);
-            if (full != null) full.recycle();
-        } catch (Exception | OutOfMemoryError ignored) {
-            wall = null;
-        }
+        wall = Backdrop.panel(c);   // blurred ahead of time: nothing to wait for
         runQuery();
     }
 
@@ -404,14 +395,16 @@ final class TextEntryView extends View {
         pop.step(dt);
         float a = Ui.clamp(appear.value);
 
+        // The same blurred backdrop as the screens behind (at once, so nothing flashes), a little darker for typing: the extra dark fades in.
         fill.setShader(null);
         fill.setColor(Brand.INK);
         c.drawRect(0, 0, w, h, fill);
         if (wall != null) {
             box.set(0, 0, w, h);
+            photo.setAlpha(204);
             c.drawBitmap(wall, null, box, photo);
         }
-        fill.setColor(Ui.alpha(Brand.INK, 0.66f * a));
+        fill.setColor(Ui.alpha(Brand.INK, 0.38f * a));
         c.drawRect(0, 0, w, h, fill);
 
         int layer = a < 0.999f ? c.saveLayerAlpha(0, 0, w, h, Math.round(255 * a)) : -1;
