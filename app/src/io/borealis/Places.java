@@ -36,7 +36,7 @@ final class Places {
         return Ui.es ? "es" : Ui.en ? "en" : "pt";
     }
 
-    /** {code, name} for each country, in alphabetical order of the app's language; the TV's own country goes first. */
+    /** {code, name} for each country, in alphabetical order of the app's language (no country goes first). */
     static List<String[]> countries() {
         final Locale ui = new Locale(lang());
         final Collator col = Collator.getInstance(ui);
@@ -46,10 +46,6 @@ final class Places {
             if (n != null && !n.isEmpty()) list.add(new String[] {cc, n});
         }
         Collections.sort(list, (a, b) -> col.compare(a[1], b[1]));
-        String home = Locale.getDefault().getCountry();
-        for (int i = 0; i < list.size(); i++) {
-            if (list.get(i)[0].equals(home)) { list.add(0, list.remove(i)); break; }
-        }
         return list;
     }
 
