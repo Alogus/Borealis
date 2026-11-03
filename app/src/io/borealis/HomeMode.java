@@ -262,7 +262,7 @@ final class HomeMode {
             check(adb.shell("cmd package set-home-activity " + HOME_ACTIVITY), "Success",
                     Ui.tr("o Android não aceitou o novo Início", "Android didn't accept the new home screen"));
             adb.shell("settings put secure screensaver_components " + DREAM);
-            boolean ours = homeHolder(adb).contains(PKG);
+            boolean ours = homeHolder(adb).contains(PKG) && homeKeyOpensUs(adb);   // the role says so AND the real Home button agrees
             if (!ours && !keepsWifi) {
                 // Android said "Success" but kept the TV's own home screen (some TCL). Turning that one off now would leave the TV
                 // with no home screen (black screen), so nothing is turned off: the soft Home takes the Home button instead.
@@ -515,6 +515,22 @@ final class HomeMode {
         out.addAll(Arrays.asList(DEBLOAT));
         if (Config.DISABLE_ASSISTANT) out.addAll(Arrays.asList(ASSISTANT));
         return out;
+    }
+
+    /**
+     * Presses the Home button (like the remote does) and checks that Borealis's home screen comes up. Some firmware (TCL's
+     * BeyondTV) keeps the Home button tied to its own launcher whatever Android's home role says: turning that launcher
+     * off would then leave a black screen. Settings is a different activity of ours, so only the home screen counts.
+     */
+    private static boolean homeKeyOpensUs(Adb adb) throws IOException {
+        adb.shell("input keyevent KEYCODE_HOME");
+        for (int i = 0; i < 8; i++) {
+            try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
+            String top = adb.shell("dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity'");
+            if (top.contains(HOME_ACTIVITY.substring(0, HOME_ACTIVITY.indexOf('/')) + "/.HomeActivity")
+                    || top.contains(HOME_ACTIVITY)) return true;
+        }
+        return false;
     }
 
     /** The home screen in use now ("package/activity"): the HOME role holder, among the TV's home screens. */
