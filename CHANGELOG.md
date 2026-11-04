@@ -2,6 +2,22 @@
 
 Newest first. / Lo más nuevo primero.
 
+## 3.46.8
+- EN: **Google's own devices (Google TV Streamer, Chromecast with Google TV) now use only the soft Home**: Borealis changes nothing in the system there (not the home role, not the screensaver, no app turned off), and puts back whatever an earlier version had changed.
+- ES: **Los dispositivos de Google (Google TV Streamer, Chromecast con Google TV) usan solo el Inicio suave**: Borealis no cambia nada del sistema ahí (ni el rol de Inicio, ni el protector de pantalla, ni apaga apps) y devuelve lo que una versión anterior hubiera cambiado.
+
+## 3.46.7
+- EN: **Safer on Google's own devices (Google TV Streamer, Chromecast with Google TV)**: Borealis no longer turns off any Google TV app there (a Streamer rebooted in a loop after a restart), and it turns back on any that an earlier version had turned off.
+- ES: **Más seguro en los dispositivos de Google (Google TV Streamer, Chromecast con Google TV)**: Borealis ya no apaga ninguna app de Google TV ahí (un Streamer se reiniciaba en bucle después de apagarlo y encenderlo) y vuelve a encender las que una versión anterior hubiera apagado.
+- EN: **Boot-loop guard**: if the TV reboots 4 times within 20 minutes, Borealis goes back to the original mode by itself and does nothing else at boot.
+- ES: **Freno contra bucles de arranque**: si la TV se reinicia 4 veces en 20 minutos, Borealis vuelve solo al modo original y no hace nada más al arrancar.
+- EN: **"Continue watching" turns on in one tap on TVs with no notification-access screen** (some TCL). If the TV's debugging is on, Borealis allows the access by itself (and it stays on, also on Android 13+ where the TV's own switch flips back off); otherwise it opens the system screen or explains what to do.
+- ES: **"Continuar viendo" se activa con un toque en TVs sin pantalla de acceso a notificaciones** (algunas TCL). Si la depuración de la TV está activa, Borealis se da el acceso solo (y se queda activo, también en Android 13+ donde el interruptor de la TV se vuelve a apagar); si no, abre la pantalla del sistema o explica qué hacer.
+
+## 3.46.5
+- EN: Safer switch to Borealis on TVs whose firmware ties the Home button to its own launcher (some TCL): Borealis now presses Home and checks that its home screen opens; if not, it turns nothing off and uses Plan B. Fixes a black screen.
+- ES: Cambio a Borealis más seguro en TVs cuyo firmware ata el botón Inicio a su propio launcher (algunas TCL): Borealis ahora presiona Inicio y comprueba que se abra su pantalla; si no, no apaga nada y usa el Plan B. Arregla una pantalla negra.
+
 ## 3.46.4
 - EN: **Borealis's own keyboard** for the TV, replacing Android's: it types your name, country and city, and suggests matches as you type (countries filter instantly; cities are searched from the second letter). A physical keyboard types too.
 - ES: **Teclado propio de Borealis** para la TV, en lugar del de Android: sirve para tu nombre, país y ciudad, y sugiere coincidencias mientras escribes (los países se filtran al instante; las ciudades se buscan desde la segunda letra). Un teclado físico también escribe.
