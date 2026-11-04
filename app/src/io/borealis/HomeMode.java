@@ -110,6 +110,50 @@ final class HomeMode {
     }
 
     /**
+     * Puts back what an earlier version changed on a Google device: the TV's own home role, its screensaver and the apps
+     * that were turned off. A Borealis mode that was "full" becomes the soft Home (the person keeps Borealis on the Home button).
+     */
+    private static void cleanGoogle(Context c, Adb adb) throws IOException {
+        JSONObject s = state(c);
+        String home = originalHome(s);
+        if (!home.isEmpty() && homeHolder(adb).contains(PKG)) restoreHome(adb, home);
+        if (adb.shell("settings get secure screensaver_components").contains(DREAM)) {
+            adb.shell("settings delete secure screensaver_components");
+        }
+        Set<String> present = packages(adb, "");
+        List<String> keep = new ArrayList<>(), back = new ArrayList<>();
+        for (String pkg : stringList(s, "disabled")) {
+            if (!present.contains(pkg)) continue;
+            if (adb.shell("pm enable " + pkg).contains("new state: enabled")) back.add(pkg); else keep.add(pkg);
+        }
+        boolean wasFull = FREE.equals(s.optString("mode"));
+        JSONObject latest = state(c);
+        try {
+            if (wasFull) latest.put("mode", ORIGINAL);
+            latest.put("disabled", new JSONArray(keep));
+        } catch (JSONException ignored) {}
+        save(c, latest);
+        if (wasFull) {
+            setSoft(c, true);
+            softAccess(c, adb);
+        }
+        if (!back.isEmpty() || wasFull) {
+            notice(c, Ui.tr("Em dispositivos do Google o Borealis passou ao Início suave e devolveu o que tinha mudado.",
+                    "On Google's own devices Borealis moved to the soft Home and put back what it had changed.",
+                    "En los dispositivos de Google Borealis pasó al Inicio suave y devolvió lo que había cambiado."));
+        }
+    }
+
+    /** The same, opening the TV's own ADB (after the app is updated, or at boot). */
+    private static void cleanGoogle(Context app) {
+        try (Adb adb = Adb.connect(app, 10_000, null)) {
+            cleanGoogle(app, adb);
+        } catch (Exception e) {
+            AppLog.w("google cleanup: " + e.getMessage());
+        }
+    }
+
+    /**
      * The TV rebooted again and again (see BootGuard) with Borealis in charge: whatever the cause, the TV is given back to
      * itself (the original home screen, screensaver and apps) and Borealis does nothing else at boot.
      */
@@ -285,6 +329,17 @@ final class HomeMode {
     private static void applyFree(Context c) {
         JSONObject s = state(c);
         try (Adb adb = connect(c, s)) {
+            if (googleDevice()) {
+                // Google's own devices: only the soft Home. Nothing is changed in the system (not the home role, not the screensaver,
+                // no app turned off) and whatever an earlier version changed is put back.
+                cleanGoogle(c, adb);
+                setSoft(c, true);
+                softAccess(c, adb);
+                done(c, Ui.tr("em dispositivos do Google o Borealis usa o Início suave, por segurança: aperte Início para testar. Se não abrir o Borealis, ative-o em Configurações → Acessibilidade.",
+                        "on Google's own devices Borealis uses the soft Home, for safety: press Home to try it. If Borealis doesn't open, turn it on in Settings → Accessibility.",
+                        "en los dispositivos de Google Borealis usa el Inicio suave, por seguridad: presiona Inicio para probar. Si no abre Borealis, actívalo en Ajustes → Accesibilidad."));
+                return;
+            }
             // The TV's own home screen and screensaver, recorded once (before ours replace them) so "original" restores
             // exactly what was there, on any brand.
             String home = originalHome(s);
@@ -503,6 +558,10 @@ final class HomeMode {
                 s.put("fingerprint", fingerprint);
                 save(app, s);
             } catch (JSONException ignored) {}
+            if (googleDevice()) {
+                cleanGoogle(app);   // Google's own devices: nothing of ours stays in the system
+                return;
+            }
             if (!FREE.equals(s.optString("mode"))) return;
             List<String> fixed = new ArrayList<>();
             try (Adb adb = Adb.connect(app, 10_000, null)) {
