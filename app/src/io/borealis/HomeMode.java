@@ -182,7 +182,7 @@ final class HomeMode {
      * boot check and an update turn it back on.
      */
     static void ensureRemoteService(Context c, long delayMs) {
-        if (RemoteKeys.supported() || remoteWanted(c)) ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
+        if (RemoteKeys.supported() || remoteWanted(c) || soft(c)) ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
     }
 
     /** Anyone can ask for the service (the welcome and Settings do): the settings button of the remote and the soft Home need it on any brand. */
@@ -230,7 +230,9 @@ final class HomeMode {
     }
 
     static void ensureRemoteServiceNow(Context app) {
-        if (!(RemoteKeys.supported() || remoteWanted(app)) || !FREE.equals(state(app).optString("mode"))) return;
+        // The soft Home lives on this service, and Android turns it off every time the app is updated: it is turned back on.
+        boolean softHome = soft(app) && !FREE.equals(state(app).optString("mode"));
+        if (!softHome && (!(RemoteKeys.supported() || remoteWanted(app)) || !FREE.equals(state(app).optString("mode")))) return;
         try (Adb adb = Adb.connect(app, 10_000, null)) {
             remoteService(app, adb, true);
         } catch (IOException e) {
