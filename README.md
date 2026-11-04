@@ -106,6 +106,12 @@ Borealis is free to install and use, and always will be. If you like it, you can
 voluntary donation through the **Sponsor** button at the top of this page (GitHub Sponsors). A donation does not
 unlock anything: it only helps the work continue. Thank you!
 
+## Thanks: functional sponsors
+Money is not the only way to support Borealis. These people gave their time and their TVs, and it shows in the app:
+- **m0Zky** tested Borealis on a Google TV Streamer in real time and ran the ADB tests from his own computer
+  (accepting the risk of a reset). Thanks to him we learned what Google's TVs do when their launcher is turned off,
+  and why Borealis uses the soft Home on Google devices.
+
 ## License
 Free for noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE). Commercial use belongs to the
 author. The name, logo, avatars and sound are not covered; see [NOTICE.md](NOTICE.md). Based on
@@ -212,6 +218,12 @@ fijas. ¿Encontraste un problema? Abre un [issue](../../issues) e indica qué TV
 Borealis es gratis de instalar y usar, y lo seguirá siendo. Si te gusta, puedes apoyar su desarrollo con una donación
 voluntaria desde el botón **Sponsor** en la parte superior de esta página (GitHub Sponsors). Donar no desbloquea nada:
 solo ayuda a que el trabajo continúe. ¡Gracias!
+
+## Gracias: sponsors funcionales
+El dinero no es la única forma de apoyar a Borealis. Estas personas dieron su tiempo y sus TVs, y se nota en la app:
+- **m0Zky** probó Borealis en un Google TV Streamer en tiempo real y corrió las pruebas por ADB desde su
+  propio computador (asumiendo el riesgo de un restablecimiento). Gracias a él supimos qué hacen las TVs de Google
+  cuando se apaga su launcher, y por qué Borealis usa el Inicio suave en los dispositivos de Google.
 
 ## Licencia
 Gratis para uso no comercial bajo la [PolyForm Noncommercial License 1.0.0](LICENSE). El uso comercial pertenece al
