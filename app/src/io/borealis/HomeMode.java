@@ -100,6 +100,27 @@ final class HomeMode {
         ModeJob.schedule(c, ModeJob.REVERT, null, 0);
     }
 
+    /**
+     * Google's own devices (Google TV Streamer, Chromecast with Google TV) run on their Google TV apps: with the original home
+     * screen, the recommendations, the setup or the screensaver turned off, a Streamer rebooted in a loop. There, Borealis only
+     * takes the home role and the screensaver, and turns nothing off.
+     */
+    static boolean googleDevice() {
+        return "Google".equalsIgnoreCase(Build.MANUFACTURER) || "Google".equalsIgnoreCase(Build.BRAND);
+    }
+
+    /**
+     * The TV rebooted again and again (see BootGuard) with Borealis in charge: whatever the cause, the TV is given back to
+     * itself (the original home screen, screensaver and apps) and Borealis does nothing else at boot.
+     */
+    static void bootLoop(Context c) {
+        AppLog.w("boot loop: going back to the original");
+        notice(c, Ui.tr("A TV reiniciou várias vezes seguidas; por segurança voltei ao modo original. Você pode ligar o Borealis de novo em Configurações → Launcher.",
+                "The TV rebooted several times in a row; for safety I went back to the original mode. You can turn Borealis on again in Settings → Launcher.",
+                "La TV se reinició varias veces seguidas; por seguridad volví al modo original. Puedes activar Borealis otra vez en Ajustes → Launcher."));
+        if (!ORIGINAL.equals(state(c).optString("mode")) || soft(c)) request(c, ORIGINAL);
+    }
+
     /** After the TV boots (and after a TV update): wait for the system to settle and check Borealis mode. */
     static void bootCheck(Context c) {
         ensureRemoteService(c, 30_000);
@@ -171,6 +192,36 @@ final class HomeMode {
         } catch (IOException e) {
             AppLog.w("remote buttons service: " + e.getMessage());
         }
+    }
+
+    /**
+     * The playback access (Notification access) without the system screen, which some TVs do not have (TCL). With the ADB of
+     * the TV itself (debugging on) the access is allowed with one fixed command. True when it ends up on. Off the main thread.
+     */
+    static boolean allowPlaybackNow(Context app) {
+        android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        try (Adb adb = Adb.connect(app, 60_000, () -> main.post(() -> android.widget.Toast.makeText(app,
+                Ui.tr("Aceite o aviso “Permitir depuração” na TV (marque “Sempre permitir”).",
+                        "Accept “Allow USB debugging?” on the TV (tick “Always allow”).",
+                        "Acepta el aviso “¿Permitir depuración?” en la TV (marca “Permitir siempre”)."),
+                android.widget.Toast.LENGTH_LONG).show()))) {
+            // Android 13+ keeps apps that did not come from a store out of "restricted settings" such as Notification access:
+            // the switch in the TV's settings flips back off. Allowing that first is what makes the access stay on.
+            try {
+                adb.shell("cmd appops set " + PKG + " ACCESS_RESTRICTED_SETTINGS allow");
+            } catch (IOException e) {
+                AppLog.w("restricted settings: " + e.getMessage());
+            }
+            adb.shell("cmd notification allow_listener " + PKG + "/" + PKG + ".MediaWatcher");
+        } catch (IOException e) {
+            AppLog.w("playback access: " + e.getMessage());
+            return false;
+        }
+        for (int i = 0; i < 8; i++) {
+            if (Watched.permitted(app)) return true;
+            try { Thread.sleep(250); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+        }
+        return Watched.permitted(app);
     }
 
     private static final String REMOTE_SERVICE = PKG + "/" + PKG + ".RemoteKeyService";
@@ -288,7 +339,7 @@ final class HomeMode {
             for (String pkg : targets) {
                 done++;
                 busy(c, Ui.tr("Desligando apps (", "Turning off apps (") + done + "/" + targets.size() + ")…");
-                if (PROTECTED.contains(pkg) || !present.contains(pkg) || owners.contains(pkg)) continue;
+                if (googleDevice() || PROTECTED.contains(pkg) || !present.contains(pkg) || owners.contains(pkg)) continue;
                 String out = adb.shell("pm disable-user --user 0 " + pkg);
                 if (out.contains("disabled-user")) disabled.add(pkg);
                 else AppLog.w("could not turn off " + pkg + ": " + out.trim());
@@ -465,6 +516,21 @@ final class HomeMode {
                     if (!reverted || !(pkg.equals(packageOf(home)) || pkg.equals(GOOGLE_SETUP))) wanted.add(pkg);
                 }
                 Set<String> disabled = new HashSet<>(stringList(s, "disabled"));
+                if (googleDevice()) {
+                    // Google's own devices (Streamer, Chromecast): the system needs its Google TV apps. None is turned off here,
+                    // and any that an earlier version turned off comes back (the system then boots normally).
+                    List<String> back = new ArrayList<>();
+                    for (String pkg : sorted(disabled)) {
+                        if (!present.contains(pkg)) { disabled.remove(pkg); continue; }
+                        if (adb.shell("pm enable " + pkg).contains("new state: enabled")) {
+                            disabled.remove(pkg);
+                            back.add(pkg);
+                        }
+                    }
+                    wanted.clear();
+                    if (!back.isEmpty()) notice(app, Ui.tr("Religuei apps do Google TV por segurança: ", "Turned Google TV apps back on for safety: ",
+                            "Reactivé apps de Google TV por seguridad: ") + String.join(", ", back) + ".");
+                }
                 for (String pkg : sorted(wanted)) {
                     if (PROTECTED.contains(pkg) || !present.contains(pkg) || owners.contains(pkg)) continue;
                     if (disabledNow.contains(pkg)) {

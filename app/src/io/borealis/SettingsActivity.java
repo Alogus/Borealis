@@ -1694,14 +1694,8 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                         .show();
                 return;
             }
-            if (Watched.openAccessSettings(getContext())) return;
-            new android.app.AlertDialog.Builder(getContext())
-                    .setTitle(Ui.tr("Acesso à reprodução", "Playback access", "Acceso a reproducción"))
-                    .setMessage(Ui.tr("Esta TV não tem a tela de acesso a notificações. No computador, com a TV conectada ao adb, rode:\n\nadb shell cmd notification allow_listener io.borealis/io.borealis.MediaWatcher",
-                            "This TV has no notification access screen. From a computer connected to the TV with adb, run:\n\nadb shell cmd notification allow_listener io.borealis/io.borealis.MediaWatcher",
-                            "Este TV no tiene la pantalla de acceso a notificaciones. Desde un computador conectado al TV con adb, ejecuta:\n\nadb shell cmd notification allow_listener io.borealis/io.borealis.MediaWatcher"))
-                    .setPositiveButton("OK", null)
-                    .show();
+            // With the TV's own debugging on it is turned on right here (no system screen needed); else the screen, or the explanation.
+            Watched.turnOn(getContext(), this::invalidate, () -> Watched.showNoScreen(getContext()));
         }
 
         // MARK: - Hidden apps screen

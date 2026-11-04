@@ -131,6 +131,34 @@ final class Watched {
         }
     }
 
+    /**
+     * Turns the access on. First with the TV's own debugging (HomeMode.allowPlaybackNow), which needs nothing from the person and
+     * works on TVs with no notification screen (TCL); if that cannot be done, the system screen opens; and if the TV has no such
+     * screen either, `noScreen` runs (it explains what to do). `granted` runs when it is on. Both run on the main thread.
+     */
+    static void turnOn(Context c, Runnable granted, Runnable noScreen) {
+        Context app = c.getApplicationContext();
+        Handler ui = new Handler(Looper.getMainLooper());
+        new Thread(() -> {
+            boolean ok = HomeMode.allowPlaybackNow(app);
+            ui.post(() -> {
+                if (ok) granted.run();
+                else if (!openAccessSettings(c)) noScreen.run();
+            });
+        }, "playback-access").start();
+    }
+
+    /** What to do on a TV with no notification access screen and no debugging: turn it on, or run one command. */
+    static void showNoScreen(Context c) {
+        new android.app.AlertDialog.Builder(c)
+                .setTitle(Ui.tr("Acesso à reprodução", "Playback access", "Acceso a reproducción"))
+                .setMessage(Ui.tr("Esta TV não tem a tela de acesso a notificações. Ative a depuração em Opções do desenvolvedor e toque de novo, ou, no computador com a TV conectada ao adb, rode:\n\nadb shell cmd notification allow_listener io.borealis/io.borealis.MediaWatcher",
+                        "This TV has no notification access screen. Turn on debugging in Developer options and try again, or, from a computer connected to the TV with adb, run:\n\nadb shell cmd notification allow_listener io.borealis/io.borealis.MediaWatcher",
+                        "Este TV no tiene la pantalla de acceso a notificaciones. Activa la depuración en Opciones para desarrolladores y vuelve a intentarlo, o, desde un computador conectado al TV con adb, ejecuta:\n\nadb shell cmd notification allow_listener io.borealis/io.borealis.MediaWatcher"))
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
     /** Opens the system screen where the access is granted. False if this TV has no such screen (use the adb command). */
     static boolean openAccessSettings(Context c) {
         try {

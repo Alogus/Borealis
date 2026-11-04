@@ -5,7 +5,7 @@
 # Toma solo el parche mas reciente de Descargas (Borealis-v*-patch.zip).
 set -e
 
-TV="192.168.1.23:5555"
+TV="192.168.86.47:5555"
 DL="/mnt/c/Users/Andres/Downloads"
 REPO="Alogus/Borealis"
 MSG="${1:?Escribe el mensaje de la version entre comillas}"

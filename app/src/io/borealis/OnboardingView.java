@@ -688,10 +688,21 @@ final class OnboardingView extends View {
         TextEntry.show(getContext(), r);
     }
 
-    /** The notification access: always opens the system screen (turn it on, or change it if it is already on). */
+    /**
+     * The notification access. Already on: the system screen, to change it. Off: it is turned on with the TV's own debugging
+     * when that is on (TVs with no such screen, like TCL, have no other way); else the system screen, or an explanation.
+     */
     private void askPlayback() {
         click.open();
-        Watched.openAccessSettings(getContext());
+        if (playbackOn()) {
+            Watched.openAccessSettings(getContext());
+            return;
+        }
+        Watched.turnOn(getContext(), () -> {
+            built = false;
+            invalidate();
+            spoken.focusMoved();
+        }, () -> Watched.showNoScreen(getContext()));
     }
 
     private void activate() {
