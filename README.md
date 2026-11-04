@@ -7,7 +7,7 @@ in your language (Español, English, Português). Designed and developed by **Al
 
 <p align="center"><img src="screenshots/home.jpg" alt="Borealis home screen" width="100%"></p>
 
-> Beta. Tested on Android TV 9, 11 and 14 (TCL, Sansui, Onn and others), see [Compatibility](#compatibility). Use it with care and tell me what you find.
+> Beta. Tested on Android TV 9, 11 and 14 (TCL, Sansui, Philips, Onn and others), see [Compatibility](#compatibility). Use it with care and tell me what you find.
 
 <table>
   <tr>
@@ -71,6 +71,7 @@ Reports from real TVs (Android TV / Google TV):
 | Challenger (Realtek) | 11 | Full mode |
 | Sansui 60" | 9 | Full mode |
 | TCL 50Q6K | 14 | Full mode (installed with Downloader, debugging on) |
+| Philips 43PUD7406/44 | 11 | Works very well (reported by a user) |
 | Onn 4K Streaming Box | 14 | Plan B (the Wi-Fi blocks changing the home screen) |
 | Other TCL / Hisense TVs | 11 | Being tested, reports welcome |
 
@@ -121,7 +122,7 @@ GitHub may show "MIT licenses found" because the original Free My TV code keeps 
 
 **[⬇ Descarga la última versión](../../releases/latest)** · o en la TV abre **Downloader** y escribe **3357424**
 
-> Beta. Probado en Android TV 9, 11 y 14 (TCL, Sansui, Onn y otras), mira [Compatibilidad](#compatibilidad). Úsalo con cuidado y cuéntame qué encuentras.
+> Beta. Probado en Android TV 9, 11 y 14 (TCL, Sansui, Philips, Onn y otras), mira [Compatibilidad](#compatibilidad). Úsalo con cuidado y cuéntame qué encuentras.
 
 <table>
   <tr>
@@ -185,6 +186,7 @@ Reportes de TVs reales (Android TV / Google TV):
 | Challenger (Realtek) | 11 | Modo completo |
 | Sansui 60" | 9 | Modo completo |
 | TCL 50Q6K | 14 | Modo completo (instalada con Downloader, depuración activa) |
+| Philips 43PUD7406/44 | 11 | Funciona muy bien (reporte de un usuario) |
 | Onn 4K Streaming Box | 14 | Plan B (el Wi-Fi bloquea el cambio de inicio) |
 | Otras TCL / Hisense | 11 | En pruebas, se agradecen reportes |
 
