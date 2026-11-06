@@ -110,7 +110,7 @@ public class HomeActivity extends Activity implements TextEntry.Host {
     }
 
     /** The news the modal tells, in order. Each is shown once, by id; add a new id at the end for news worth telling. */
-    private static final String[] NEWS = {"shelf-menu", "fixes-3.45.2", "weather-city"};   // "downloads-1000" (showMilestone) waits for the notification service
+    private static final String[] NEWS = {"shelf-menu", "fixes-3.45.2", "weather-city", "downloads-2000"};
 
     private java.util.Set<String> seenNews() {
         android.content.SharedPreferences sp = getSharedPreferences("notice", MODE_PRIVATE);
@@ -174,7 +174,7 @@ public class HomeActivity extends Activity implements TextEntry.Host {
     /** One news as a modal. `after` runs once it is closed; when it is not a replay, the news counts as seen. */
     private void showNewsEntry(final String id, final boolean history, final Runnable after) {
         String now = Update.installed(this);
-        if (id.equals("downloads-1000")) {
+        if (id.equals("downloads-2000")) {
             showMilestone(id, history, after);
             return;
         }
@@ -223,20 +223,25 @@ public class HomeActivity extends Activity implements TextEntry.Host {
         if (notice != null) notice.weather();
     }
 
-    /** The thank-you for the first 1,000 downloads: "Support" shows a QR code to the sponsors page, "Not now" closes. */
+    /** The thank-you for the first 2,000 downloads: "Support" shows a QR code to the sponsors page, "Not now" closes. */
     private void showMilestone(final String id, final boolean history, final Runnable after) {
         final Runnable done = () -> {
             if (!history) markNewsSeen(id);
             if (after != null) after.run();
         };
         showNotice(false,
-                Ui.tr("Passamos de 1.000 downloads: obrigado!", "We passed 1,000 downloads: thank you!", "¡Superamos las 1.000 descargas: gracias!"),
+                Ui.tr("Passamos de 2.000 downloads: obrigado!", "We passed 2,000 downloads: thank you!", "¡Superamos las 2.000 descargas: gracias!"),
                 Ui.tr("Obrigado por confiar no Borealis. Ele continua gratuito e vive de doações voluntárias. Se quiser ajudar, apoie quando quiser. E, se você gostou, conte para amigos e família.",
                         "Thank you for trusting Borealis. It stays free and lives on voluntary donations. If you want to help, you can support it any time. And if you like it, tell your friends and family.",
                         "Gracias por confiar en Borealis. Sigue siendo gratis y vive de donaciones voluntarias. Si quieres ayudar, puedes apoyarlo cuando quieras. Y si te gusta, cuéntale a tus amigos y familia."),
                 Ui.tr("Apoiar", "Support", "Patrocinar"), () -> { if (!history) markNewsSeen(id); showSponsorQr(after); },
                 Ui.tr("Agora não", "Not now", "Ahora no"), done);
-        if (notice != null) notice.milestone(Ui.tr("1.000", "1,000", "1.000"), Ui.tr("downloads", "downloads", "descargas"));
+        if (notice != null) notice.milestone(2000, Ui.tr(".", ",", "."), Ui.tr("downloads", "downloads", "descargas"));
+    }
+
+    /** The sample row of the Settings menu opens the celebration again (it does not count as seen or unseen). */
+    void showMilestoneAgain() {
+        showMilestone("downloads-2000", true, null);
     }
 
     private void showSponsorQr(final Runnable after) {
@@ -246,7 +251,13 @@ public class HomeActivity extends Activity implements TextEntry.Host {
                         "Point your phone's camera at the code. Donating is voluntary and unlocks nothing: it only helps Borealis go on.",
                         "Apunta la cámara de tu celular al código. Donar es voluntario y no desbloquea nada: solo ayuda a que Borealis siga."),
                 Ui.tr("Pronto", "Done", "Listo"), after, null, null);
-        if (notice != null) notice.qr(NoticeView.SPONSOR_QR, "github.com/sponsors/Alogus");
+        if (notice != null) notice.qr(NoticeView.SPONSOR_QR, "github.com/sponsors/Alogus").sponsor("GITHUB SPONSORS",
+                new String[] {Ui.tr("É voluntário", "It is voluntary", "Es voluntario"),
+                        Ui.tr("Não libera nada", "It unlocks nothing", "No desbloquea nada"),
+                        Ui.tr("Ajuda a continuar", "It keeps it going", "Ayuda a que siga")},
+                new String[] {Ui.tr("Você decide se apoia e quanto.", "You decide if you help and how much.", "Tú decides si apoyar y cuánto."),
+                        Ui.tr("O Borealis é igual para todos.", "Borealis is the same for everyone.", "Borealis es igual para todos."),
+                        Ui.tr("Tempo e melhorias para o Borealis.", "Time and improvements for Borealis.", "Tiempo y mejoras para Borealis.")});
     }
 
     private SplashView newSplash(boolean waiting) { return newSplash(waiting, false); }
