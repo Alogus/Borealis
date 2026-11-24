@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#171519">
-<link rel="icon" href="favicon.png">
+<link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="icon" href="favicon.png" sizes="256x256" type="image/png">
 <link rel="preload" href="fonts/Gloock-Regular.woff" as="font" type="font/woff" crossorigin>
 <style>
 @font-face{font-family:Gloock;src:url(fonts/Gloock-Regular.woff) format("woff");font-display:swap}
@@ -28,7 +28,9 @@ h1,h2,h3{font-family:Gloock,serif;font-weight:400;line-height:1.1}
 nav{position:sticky;top:0;z-index:5;background:#171519d9;backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
 nav .wrap{display:flex;align-items:center;gap:20px;height:64px}
 .brand{display:flex;align-items:center;gap:10px;font-family:Gloock,serif;font-size:21px;color:var(--w);text-decoration:none;margin-right:auto}
-.brand img{width:28px;height:28px;border-radius:7px}
+.brand img{height:28px;width:auto}
+.brand i{font-style:normal;display:flex;align-items:center;gap:10px;font-family:Montserrat,sans-serif;font-weight:700;font-size:11px;letter-spacing:.14em;color:#B79CFE}
+.brand i:before{content:"";width:1px;height:20px;background:rgba(255,255,255,.3)}
 nav a.l{color:var(--mut);text-decoration:none;font-size:14px;font-weight:500}
 nav a.l:hover{color:var(--w)}
 .lang{background:none;border:1px solid var(--line);color:var(--w);border-radius:99px;padding:5px 12px;font:600 13px Montserrat;cursor:pointer}
@@ -85,11 +87,16 @@ footer .links{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px}
 @media(max-width:860px){.hero{grid-template-columns:1fr;padding:40px 20px 30px}.tv{transform:none}.grid,.ob{grid-template-columns:1fr 1fr}.nav-hide{display:none}}
 @media(max-width:560px){.grid,.shots,.ob{grid-template-columns:1fr}body{font-size:16px}section{padding:50px 0}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+figure img{cursor:zoom-in}
+#lb{position:fixed;inset:0;z-index:100;background:rgba(10,8,12,.92);display:none;align-items:center;justify-content:center;padding:4vmin;cursor:zoom-out}
+#lb.on{display:flex}
+#lb img{max-width:100%;max-height:100%;width:auto;height:auto;border-radius:12px;border:1px solid var(--line);cursor:zoom-out}
+#lb button{position:absolute;top:14px;right:18px;background:none;border:0;color:#fff;font-size:34px;line-height:1;cursor:pointer}
 </style>
 </head>
 <body>
 <nav><div class="wrap">
-<a class="brand" href="#top"><img src="favicon.png" alt="">Borealis</a>
+<a class="brand" href="#top"><img src="img/borealis-isotipo.svg" alt="" width="22" height="28">Borealis<i>TV</i></a>
 <a class="l nav-hide" href="#features"><span class="t" data-en="Features">Características</span></a><a class="l nav-hide" href="#shots"><span class="t" data-en="Screenshots">Capturas</span></a><a class="l nav-hide" href="#install"><span class="t" data-en="Install">Instalar</span></a><a class="l nav-hide" href="#support"><span class="t" data-en="Support">Apoyar</span></a>
 <button class="lang" id="lang" aria-label="Language">EN</button>
 </div></nav>
@@ -109,39 +116,59 @@ footer .links{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px}
 <div class="hd"><h2><span class="t" data-en="Made so your TV looks and feels good">Hecho para que tu TV se vea y se sienta bien</span></h2><p><span class="t" data-en="No heavy libraries, no accounts, no noise. Just what you need, carefully made.">Sin librerías pesadas, sin cuentas y sin ruido. Solo lo que necesitas, bien cuidado.</span></p></div>
 <div class="grid">
 <div class="card" style="--c:var(--l)"><div class="dot"></div><h3><span class="t" data-en="Continue watching">Continuar viendo</span></h3><p><span class="t" data-en="Pick up what you left half-watched in your apps, or discover movies and shows with TMDB.">Retoma lo que dejaste a medias en tus apps, o descubre películas y series con TMDB.</span></p></div>
-<div class="card" style="--c:var(--p)"><div class="dot"></div><h3><span class="t" data-en="Light">Ligero</span></h3><p><span class="t" data-en="Drawn directly, no heavy libraries: fast even on modest TVs.">Se dibuja directo, sin librerías pesadas: rápido incluso en TVs modestas.</span></p></div>
-<div class="card" style="--c:var(--m)"><div class="dot"></div><h3><span class="t" data-en="Make it yours">Hazlo tuyo</span></h3><p><span class="t" data-en="Wallpapers, screensavers, a shelf you arrange and an avatar for everyone at home.">Fondos, protectores de pantalla, un estante que organizas y un avatar para cada persona de la casa.</span></p></div>
-<div class="card" style="--c:var(--l)"><div class="dot"></div><h3><span class="t" data-en="Your shelf, your way">Tu estante, a tu manera</span></h3><p><span class="t" data-en="Hold OK on an app to move it, remove it or hide it. Hidden apps wait in All apps. You can also mute the click sounds.">Mantén OK sobre una app para moverla, quitarla u ocultarla. Las ocultas esperan en Todas las apps. También puedes silenciar los clics.</span></p></div>
-<div class="card" style="--c:var(--m)"><div class="dot"></div><h3><span class="t" data-en="Free and private">Gratis y privado</span></h3><p><span class="t" data-en="No accounts, no ads, no tracking. Kept alive by voluntary donations.">Sin cuentas, sin anuncios y sin rastreo. Se sostiene con donaciones voluntarias.</span></p></div>
-<div class="card" style="--c:var(--l)"><div class="dot"></div><h3><span class="t" data-en="Updates with one OK">Se actualiza con un OK</span></h3><p><span class="t" data-en="It tells you when a new version is out and installs without a computer.">Te avisa cuando hay una versión nueva y se instala sin computador.</span></p></div>
-<div class="card" style="--c:var(--p)"><div class="dot"></div><h3><span class="t" data-en="In your language">En tu idioma</span></h3><p><span class="t" data-en="Español, English and Português, or your TV&#x27;s language.">Español, English y Português, o el idioma de tu TV.</span></p></div>
+<div class="card" style="--c:var(--p)"><div class="dot"></div><h3><span class="t" data-en="Your apps at hand">Tus apps a la mano</span></h3><p><span class="t" data-en="Pin your favorites with the &quot;+&quot; and hold OK on one to move it. All the rest wait in All apps, A to Z.">Fija tus favoritas desde el "+" y mantén OK sobre una para moverla. Las demás esperan en Todas las apps, de la A a la Z.</span></p></div>
+<div class="card" style="--c:var(--m)"><div class="dot"></div><h3><span class="t" data-en="Made to measure">A tu medida</span></h3><p><span class="t" data-en="Choose how many apps you see per row (6, 8 or 10) and their shape: rectangular, square or round. You see it live before applying it.">Elige cuántas apps ves por fila (6, 8 o 10) y su forma: rectangular, cuadrada o circular. Lo ves en vivo antes de aplicarlo.</span></p></div>
+<div class="card" style="--c:var(--l)"><div class="dot"></div><h3><span class="t" data-en="Make it yours">Hazlo tuyo</span></h3><p><span class="t" data-en="Wallpapers and screensavers made for your living room. Change them any time.">Fondos de pantalla y protectores de pantalla pensados para tu sala. Cámbialos cuando quieras.</span></p></div>
+<div class="card" style="--c:var(--p)"><div class="dot"></div><h3><span class="t" data-en="Your profile">Tu perfil</span></h3><p><span class="t" data-en="Your name, an avatar out of 19 for everyone at home, and the city for your weather and sunset.">Tu nombre, un avatar entre 19 para cada persona de la casa y la ciudad de tu clima y tu atardecer.</span></p></div>
+<div class="card" style="--c:var(--m)"><div class="dot"></div><h3><span class="t" data-en="Get to know Borealis">Conoce Borealis</span></h3><p><span class="t" data-en="When the welcome ends, a four-screen tour shows you the essentials. You can repeat it in Settings › Preferences.">Al terminar la bienvenida, un recorrido de cuatro pantallas te muestra lo esencial. Puedes repetirlo en Ajustes › Preferencias.</span></p></div>
+<div class="card" style="--c:var(--l)"><div class="dot"></div><h3><span class="t" data-en="Sounds good">Suena bien</span></h3><p><span class="t" data-en="Five click sounds to choose from and a volume you set, or total silence.">Cinco sonidos de clic para elegir y un volumen a tu gusto, o silencio total.</span></p></div>
+<div class="card" style="--c:var(--p)"><div class="dot"></div><h3><span class="t" data-en="Moves smoothly">Se mueve con suavidad</span></h3><p><span class="t" data-en="Screens open with a soft blur instead of jumping, and everything feels like one piece.">Las pantallas se abren con un desenfoque suave en lugar de saltar, y todo se siente como una sola cosa.</span></p></div>
+<div class="card" style="--c:var(--m)"><div class="dot"></div><h3><span class="t" data-en="Light">Ligero</span></h3><p><span class="t" data-en="Drawn directly, no heavy libraries: fast even on modest TVs.">Se dibuja directo, sin librerías pesadas: rápido incluso en TVs modestas.</span></p></div>
+<div class="card" style="--c:var(--l)"><div class="dot"></div><h3><span class="t" data-en="Free and private">Gratis y privado</span></h3><p><span class="t" data-en="No accounts, no ads, no tracking. Kept alive by voluntary donations.">Sin cuentas, sin anuncios y sin rastreo. Se sostiene con donaciones voluntarias.</span></p></div>
+<div class="card" style="--c:var(--p)"><div class="dot"></div><h3><span class="t" data-en="Updates with one OK">Se actualiza con un OK</span></h3><p><span class="t" data-en="It tells you when a new version is out and installs without a computer.">Te avisa cuando hay una versión nueva y se instala sin computador.</span></p></div>
+<div class="card" style="--c:var(--m)"><div class="dot"></div><h3><span class="t" data-en="In your language">En tu idioma</span></h3><p><span class="t" data-en="Español, English and Português, or your TV&#x27;s language.">Español, English y Português, o el idioma de tu TV.</span></p></div>
 </div></div></section>
 
 <section id="shots"><div class="wrap">
 <div class="hd"><h2><span class="t" data-en="What it looks like">Así se ve</span></h2><p><span class="t" data-en="Real screenshots, taken from a TV.">Capturas reales, tomadas desde una TV.</span></p></div>
 <div class="shots">
-<figure><img loading="lazy" src="img/settings.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Settings">Configuración</span></figcaption></figure>
+<figure><img loading="lazy" src="img/home.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Your home: what you left half-watched and your pinned apps">Tu Home: lo que dejaste a medias y tus apps fijadas</span></figcaption></figure>
+<figure><img loading="lazy" src="img/pin-apps.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Pin your apps with the &quot;+&quot;">Fija tus apps con el "+"</span></figcaption></figure>
+<figure><img loading="lazy" src="img/settings.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Settings">Ajustes</span></figcaption></figure>
+<figure><img loading="lazy" src="img/icons-layout.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Icons and layout, with a live preview">Iconos y distribución, con vista previa en vivo</span></figcaption></figure>
 <figure><img loading="lazy" src="img/wallpapers.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Wallpapers">Fondos de pantalla</span></figcaption></figure>
-<figure><img loading="lazy" src="img/screensaver.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Screensaver">Protector de pantalla</span></figcaption></figure>
 <figure><img loading="lazy" src="img/avatars.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Pick your avatar">Elige tu avatar</span></figcaption></figure>
-<figure><img loading="lazy" src="img/shelf-menu.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Hold OK: move or remove from the shelf">Mantén OK: mover o quitar del estante</span></figcaption></figure>
+<figure><img loading="lazy" src="img/sounds.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Click sounds">Sonido de los clics</span></figcaption></figure>
+<figure><img loading="lazy" src="img/shelf-menu.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Hold OK: move or unpin">Mantén OK: mover o dejar de fijar</span></figcaption></figure>
 <figure><img loading="lazy" src="img/shelf-move.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Move the app with the arrows">Mueve la app con las flechas</span></figcaption></figure>
 <figure><img loading="lazy" src="img/shelf-hidden.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Hidden apps: bring them back any time">Apps ocultas: vuelve a mostrarlas cuando quieras</span></figcaption></figure>
-<figure><img loading="lazy" src="img/update-bell.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="A bell tells you about updates">Una campana te avisa de las actualizaciones</span></figcaption></figure>
-<figure><img loading="lazy" src="img/whats-new.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="What&#x27;s new in each version">Novedades en cada versión</span></figcaption></figure>
+<figure><img loading="lazy" src="img/screensaver.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Screensaver">Protector de pantalla</span></figcaption></figure>
+<figure><img loading="lazy" src="img/about.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="About Borealis">Acerca de Borealis</span></figcaption></figure>
 </div></div></section>
 
 <section><div class="wrap">
-<div class="hd"><h2><span class="t" data-en="The first run">La primera vez</span></h2><p><span class="t" data-en="A one-minute welcome sets up your language, your name, your home screen and &quot;Continue watching&quot;. You can repeat it any time.">Una bienvenida de un minuto configura tu idioma, tu nombre, tu pantalla de inicio y "Continuar viendo". Puedes repetirla cuando quieras.</span></p></div>
+<div class="hd"><h2><span class="t" data-en="The first run">La primera vez</span></h2><p><span class="t" data-en="A one-minute welcome sets up your language, your name, your city, your home screen and &quot;Continue watching&quot;. Then a short tour shows you the essentials. You can repeat both any time.">Una bienvenida de un minuto configura tu idioma, tu nombre, tu ciudad, tu pantalla de inicio y "Continuar viendo". Luego, un recorrido corto te muestra lo esencial. Puedes repetir ambos cuando quieras.</span></p></div>
 <div class="ob">
 <figure><img loading="lazy" src="img/onboarding-1-welcome.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Welcome">Bienvenida</span></figcaption></figure>
 <figure><img loading="lazy" src="img/onboarding-2-language.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Language">Idioma</span></figcaption></figure>
 <figure><img loading="lazy" src="img/onboarding-3-name.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Your name">Tu nombre</span></figcaption></figure>
+<figure><img loading="lazy" src="img/onboarding-city.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Your city">Tu ciudad</span></figcaption></figure>
 <figure><img loading="lazy" src="img/onboarding-4-home.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Your home screen">Tu pantalla de inicio</span></figcaption></figure>
 <figure><img loading="lazy" src="img/onboarding-5-permission.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="One permission">Un permiso</span></figcaption></figure>
-<figure><img loading="lazy" src="img/onboarding-6-shelf.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Customize your shelf">Personaliza tu estante</span></figcaption></figure>
+<figure><img loading="lazy" src="img/onboarding-prep.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Getting your TV ready">Preparando tu TV</span></figcaption></figure>
 <figure><img loading="lazy" src="img/onboarding-6-done.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="All set">Todo listo</span></figcaption></figure>
 </div></div></section>
+
+<section><div class="wrap">
+<div class="hd"><h2><span class="t" data-en="Get to know Borealis">Conoce Borealis</span></h2><p><span class="t" data-en="When the welcome ends, a short tour shows you the essentials. You can see it again any time in Settings › Preferences.">Al terminar la bienvenida, un recorrido corto te muestra lo esencial. Puedes verlo otra vez cuando quieras en Ajustes › Preferencias.</span></p></div>
+<div class="ob">
+<figure><img loading="lazy" src="img/tour-0-invitacion.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="The invitation">La invitación</span></figcaption></figure>
+<figure><img loading="lazy" src="img/tour-1.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Your apps at hand">Tus apps, a la mano</span></figcaption></figure>
+<figure><img loading="lazy" src="img/tour-2.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Made to measure">A tu medida</span></figcaption></figure>
+<figure><img loading="lazy" src="img/tour-3.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Pick up where you left off">Retoma donde ibas</span></figcaption></figure>
+<figure><img loading="lazy" src="img/tour-4.jpg" alt="" width="1280" height="720"><figcaption><span class="t" data-en="Your TV, in a new light">Tu TV, bajo una nueva luz</span></figcaption></figure>
+</div></div></section>
+
 
 <section id="install"><div class="wrap">
 <div class="hd"><h2><span class="t" data-en="Install">Instalar</span></h2><p><span class="t" data-en="About 10 minutes, one time. After that it updates itself with one OK.">Unos 10 minutos, una sola vez. Después se actualiza solo con un OK.</span></p></div>
@@ -191,5 +218,7 @@ c.onclick=function(){var o=c.querySelector(".t");try{navigator.clipboard.writeTe
 
 })();
 </script>
+<div id="lb" role="dialog" aria-modal="true" aria-label="Zoom"><button type="button" aria-label="Close">×</button><img alt=""></div>
+<script>(function(){var b=document.getElementById("lb"),im=b.querySelector("img");function c(){b.classList.remove("on");im.removeAttribute("src")}document.addEventListener("click",function(e){var t=e.target;if(t.closest&&t.closest("figure")&&t.tagName=="IMG"){im.src=t.currentSrc||t.src;b.classList.add("on")}else if(b.classList.contains("on"))c()});document.addEventListener("keydown",function(e){if(e.key=="Escape")c()})})();</script>
 </body>
 </html>
