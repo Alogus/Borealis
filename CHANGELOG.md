@@ -2,6 +2,20 @@
 
 Newest first. / Lo más nuevo primero.
 
+## 4.0.0
+- EN: **Borealis 4, a new look for your TV.** New logo and a new start screen, and a simpler, calmer Home with what you were watching and your pinned apps.
+- ES: **Borealis 4, una nueva cara para tu TV.** Logo nuevo, pantalla de inicio nueva y un Home más simple y tranquilo, con lo que ibas viendo y tus apps fijadas.
+- EN: **Pin your apps** with the "+" on the Home. Hold OK on an app to move it, unpin it or hide it.
+- ES: **Fija tus apps** con el "+" del Home. Mantén OK sobre una app para moverla, dejar de fijarla u ocultarla.
+- EN: **Make it yours**: icon layout and shapes, new wallpapers and screensavers, and your name and avatar in My profile.
+- ES: **Hazlo tuyo**: distribución y formas de los iconos, fondos y protectores de pantalla nuevos, y tu nombre y avatar en Mi perfil.
+- EN: **A new welcome**: pick your language, name and city, and Borealis prepares your TV. Then "Meet Borealis" shows you the essentials; you can see it again in Settings › Preferences.
+- ES: **Una bienvenida nueva**: elige tu idioma, nombre y ciudad, y Borealis prepara tu TV. Luego "Conoce Borealis" te muestra lo esencial; puedes verlo otra vez en Ajustes › Preferencias.
+- EN: **Sound of the clicks**: five sounds to choose from and a volume you can set.
+- ES: **Sonido de los clics**: cinco sonidos para elegir y un volumen que puedes ajustar.
+- EN: **Smoother**: soft transitions between the Home and Settings, and a lighter, cleaner code base. New *About Borealis* credits.
+- ES: **Más fluido**: transiciones suaves entre el Home y Ajustes, y un código más ligero y limpio. Nuevos créditos en *Acerca de Borealis*.
+
 ## 3.46.8
 - EN: **Google's own devices (Google TV Streamer, Chromecast with Google TV) now use only the soft Home**: Borealis changes nothing in the system there (not the home role, not the screensaver, no app turned off), and puts back whatever an earlier version had changed.
 - ES: **Los dispositivos de Google (Google TV Streamer, Chromecast con Google TV) usan solo el Inicio suave**: Borealis no cambia nada del sistema ahí (ni el rol de Inicio, ni el protector de pantalla, ni apaga apps) y devuelve lo que una versión anterior hubiera cambiado.
