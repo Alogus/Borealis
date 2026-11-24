@@ -1,5 +1,7 @@
 # Borealis TV Launcher
 
+<p align="center"><img src="docs/img/social.jpg" alt="Borealis TV: your TV, in a new light" width="100%"></p>
+
 **A light, beautiful home screen for Google TV and Android TV.** Your apps, your screensaver and "Continue watching",
 in your language (Español, English, Português). Designed and developed by **Alogus Tov**.
 
@@ -20,15 +22,15 @@ in your language (Español, English, Português). Designed and developed by **Al
   </tr>
 </table>
 
-## Your shelf
+## Your pinned apps
 <table>
   <tr>
-    <td width="50%"><img src="screenshots/shelf-menu.jpg" alt="Shelf menu"><br><sub>Hold OK: move or remove from the shelf</sub></td>
+    <td width="50%"><img src="screenshots/shelf-menu.jpg" alt="Pinned app menu"><br><sub>Hold OK: move, unpin or hide</sub></td>
     <td width="50%"><img src="screenshots/shelf-move.jpg" alt="Moving an app"><br><sub>Move it with the arrows</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="screenshots/shelf-hidden.jpg" alt="Hidden apps"><br><sub>Hidden apps: bring them back any time</sub></td>
-    <td width="50%"><img src="screenshots/update-bell.jpg" alt="Update bell"><br><sub>A bell tells you about updates</sub></td>
+    <td width="50%"><img src="screenshots/pin-apps.jpg" alt="Pin apps"><br><sub>Pin apps with the "+"</sub></td>
   </tr>
 </table>
 
@@ -37,13 +39,14 @@ A one-minute welcome sets up your language, your name, your home screen and "Con
 
 <table>
   <tr><td width="33%"><img src="screenshots/onboarding-1-welcome.jpg" alt="Welcome"><br><sub>Welcome</sub></td><td width="33%"><img src="screenshots/onboarding-2-language.jpg" alt="Language"><br><sub>Language</sub></td><td width="33%"><img src="screenshots/onboarding-3-name.jpg" alt="Your name"><br><sub>Your name</sub></td></tr>
-  <tr><td width="33%"><img src="screenshots/onboarding-4-home.jpg" alt="Your home screen"><br><sub>Your home screen</sub></td><td width="33%"><img src="screenshots/onboarding-5-permission.jpg" alt="Continue watching"><br><sub>Continue watching</sub></td><td width="33%"><img src="screenshots/onboarding-6-shelf.jpg" alt="Customize your shelf"><br><sub>Customize your shelf</sub></td></tr>
+  <tr><td width="33%"><img src="screenshots/onboarding-4-home.jpg" alt="Your home screen"><br><sub>Your home screen</sub></td><td width="33%"><img src="screenshots/onboarding-5-permission.jpg" alt="Continue watching"><br><sub>Continue watching</sub></td><td width="33%"><img src="screenshots/onboarding-prep.jpg" alt="Getting your TV ready"><br><sub>Getting your TV ready</sub></td></tr>
   <tr><td width="33%"><img src="screenshots/onboarding-6-done.jpg" alt="All set"><br><sub>All set</sub></td></tr>
 </table>
 
 ## What it does
-- A calm home screen with your apps, a shelf you can arrange, the weather and the time.
-- **Your shelf, your way**: hold **OK** on a shelf app to *move*, *remove* or *hide* it. Hidden apps wait at the end of *All apps*, where you can bring them back.
+- A calm home screen with your apps, your pinned apps, which you arrange yourself, the weather and the time.
+- **Pin your apps** with the **+** on the home screen. Hold **OK** on a pinned app to *move*, *unpin* or *hide* it. Hidden apps wait at the end of *All apps*, where you can bring them back.
+- **Make it yours**: choose your icon layout and shapes, wallpapers, screensavers, five click sounds, and your name and avatar. *Meet Borealis*, a short tour, shows you the essentials.
 - **Quiet when you want**: turn the click sounds off in Settings.
 - **Updates inside the app**: a bell tells you when a new version is out, and *What's new* explains each change.
 - **Continue watching**: pick up what you left half-watched in your apps, or discover movies and shows (TMDB).
@@ -123,6 +126,8 @@ GitHub may show "MIT licenses found" because the original Free My TV code keeps 
 
 # Borealis TV Launcher (Español)
 
+<p align="center"><img src="docs/img/social.jpg" alt="Borealis TV: tu TV, bajo una nueva luz" width="100%"></p>
+
 **Una pantalla de inicio ligera y bonita para Google TV y Android TV.** Tus apps, tu protector de pantalla y
 "Continuar viendo", en tu idioma. Diseñado y desarrollado por **Alogus Tov**.
 
@@ -141,15 +146,15 @@ GitHub may show "MIT licenses found" because the original Free My TV code keeps 
   </tr>
 </table>
 
-## Tu estante
+## Tus apps fijadas
 <table>
   <tr>
-    <td width="50%"><img src="screenshots/shelf-menu.jpg" alt="Menú del estante"><br><sub>Mantén OK: mover o quitar del estante</sub></td>
+    <td width="50%"><img src="screenshots/shelf-menu.jpg" alt="Menú de app fijada"><br><sub>Mantén OK: mover, dejar de fijar u ocultar</sub></td>
     <td width="50%"><img src="screenshots/shelf-move.jpg" alt="Mover una app"><br><sub>Muévela con las flechas</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="screenshots/shelf-hidden.jpg" alt="Apps ocultas"><br><sub>Apps ocultas: vuelve a mostrarlas cuando quieras</sub></td>
-    <td width="50%"><img src="screenshots/update-bell.jpg" alt="Campana de actualización"><br><sub>Una campana te avisa de las actualizaciones</sub></td>
+    <td width="50%"><img src="screenshots/pin-apps.jpg" alt="Fijar apps"><br><sub>Fija apps con el "+"</sub></td>
   </tr>
 </table>
 
@@ -158,13 +163,14 @@ Una bienvenida de un minuto configura tu idioma, tu nombre, tu pantalla de inici
 
 <table>
   <tr><td width="33%"><img src="screenshots/onboarding-1-welcome.jpg" alt="Bienvenida"><br><sub>Bienvenida</sub></td><td width="33%"><img src="screenshots/onboarding-2-language.jpg" alt="Idioma"><br><sub>Idioma</sub></td><td width="33%"><img src="screenshots/onboarding-3-name.jpg" alt="Tu nombre"><br><sub>Tu nombre</sub></td></tr>
-  <tr><td width="33%"><img src="screenshots/onboarding-4-home.jpg" alt="Tu pantalla de inicio"><br><sub>Tu pantalla de inicio</sub></td><td width="33%"><img src="screenshots/onboarding-5-permission.jpg" alt="Continuar viendo"><br><sub>Continuar viendo</sub></td><td width="33%"><img src="screenshots/onboarding-6-shelf.jpg" alt="Personaliza tu estante"><br><sub>Personaliza tu estante</sub></td></tr>
+  <tr><td width="33%"><img src="screenshots/onboarding-4-home.jpg" alt="Tu pantalla de inicio"><br><sub>Tu pantalla de inicio</sub></td><td width="33%"><img src="screenshots/onboarding-5-permission.jpg" alt="Continuar viendo"><br><sub>Continuar viendo</sub></td><td width="33%"><img src="screenshots/onboarding-prep.jpg" alt="Preparando tu TV"><br><sub>Preparando tu TV</sub></td></tr>
   <tr><td width="33%"><img src="screenshots/onboarding-6-done.jpg" alt="Todo listo"><br><sub>Todo listo</sub></td></tr>
 </table>
 
 ## Qué hace
-- Una pantalla de inicio tranquila con tus apps, un estante que organizas, el clima y la hora.
-- **Tu estante, a tu manera**: mantén **OK** sobre una app del estante para *moverla*, *quitarla* u *ocultarla*. Las apps ocultas quedan al final de *Todas las apps*, y desde ahí las puedes mostrar de nuevo.
+- Una pantalla de inicio tranquila con tus apps, tus apps fijadas, que ordenas tú, el clima y la hora.
+- **Fija tus apps** con el **+** de la pantalla de inicio. Mantén **OK** sobre una app fijada para *moverla*, *dejar de fijarla* u *ocultarla*. Las apps ocultas quedan al final de *Todas las apps*, y desde ahí las puedes mostrar de nuevo.
+- **Hazlo tuyo**: elige la distribución y la forma de los iconos, fondos, protectores de pantalla, cinco sonidos de clic, y tu nombre y avatar. *Conoce Borealis*, un recorrido corto, te muestra lo esencial.
 - **Silencio cuando quieras**: apaga el sonido de los clics en Ajustes.
 - **Actualizaciones dentro de la app**: una campana te avisa cuando hay una versión nueva, y *Novedades* te cuenta cada cambio.
 - **Continuar viendo**: retoma lo que dejaste a medias en tus apps, o descubre películas y series (TMDB).
