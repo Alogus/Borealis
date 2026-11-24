@@ -34,8 +34,6 @@ final class Update {
     private Update() {}
 
     static final String API = "https://api.github.com/repos/Alogus/Borealis/releases/latest";
-    /** The AFTVnews Downloader code that always downloads the latest release. */
-    static final String CODE = "3357424";
     static final int UP_TO_DATE = 0, FOUND = 1, FAILED = 2;
     private static final long EVERY_MS = 24L * 3600 * 1000;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());

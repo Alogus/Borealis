@@ -3,29 +3,29 @@ package io.borealis;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.RadialGradient;
-import android.graphics.Shader;
 import android.os.SystemClock;
 import android.view.View;
+import android.view.animation.PathInterpolator;
 
 /**
- * The opening of Borealis: the waves rise one after another over the night black, the star and dot pop in, the name
- * fades up under them, a short hold, then everything (background and logo together) fades out into the home screen.
+ * The opening of Borealis (brand manual): over the aurora background and the giant "curtains" at 10 %, the three lights rise
+ * from the horizon one after another and Polaris shines once, under them the name, then the slogan fades up; a short hold,
+ * then everything (background and logo together) fades out into the home screen. With "reduce motion" the logo only fades in.
  * It can be put in place "waiting" (solid night black, nothing moving) while the screen is off, so that when the TV wakes
  * the opening is already in front of the home screen; {@link #start()} then plays it. Any key skips it.
  */
 final class SplashView extends View {
-    private static final long RISE_AT = 150, RISE_MS = 950, STAR_AT = 900, NAME_AT = 750, NAME_MS = 550, HOLD_UNTIL = 2900, OUT_MS = 450;
-    private static final long SLOGAN_AT = 1250, WELCOME_AT = 0, WELCOME_HOLD = 5400, WELCOME_TEXT_AT = 1900;   // the welcome opening: the logo, then the greeting under it, held long enough to read it
+    private static final long HOLD_UNTIL = 2900, OUT_MS = 450;
+    private static final long SLOGAN_AT = 900, SLOGAN_MS = 600, WELCOME_AT = 0, WELCOME_HOLD = 5400, WELCOME_TEXT_AT = 1900;   // the welcome opening: the logo, then the greeting under it, held long enough to read it
+    private static final PathInterpolator CURVE = new PathInterpolator(0.22f, 1f, 0.36f, 1f);
 
     interface Done { void onDone(SplashView v); }
 
-    private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
     private long start = -1, skipAt = -1;
     private Done done;
     private boolean finished;
     private int w, h;
-    private final boolean welcome;
+    private final boolean welcome, reduced;
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private boolean soundPlayed;
     private final long born = SystemClock.uptimeMillis();
@@ -35,6 +35,7 @@ final class SplashView extends View {
     SplashView(Context c, boolean waiting, boolean welcome) {
         super(c);
         this.welcome = welcome;
+        this.reduced = Logo.reducedMotion(c);
         Logo.wordmark(c);   // load the face now, not in the middle of the animation
         setFocusable(false);
         if (!waiting) { start = SystemClock.uptimeMillis(); playSound(); }
@@ -85,16 +86,22 @@ final class SplashView extends View {
     @Override protected void onSizeChanged(int nw, int nh, int ow, int oh) {
         w = nw;
         h = nh;
-        glow.setShader(new RadialGradient(w / 2f, h * 0.46f, Math.max(w, h) * 0.45f, 0x2EE99794, 0x00171519, Shader.TileMode.CLAMP));
     }
 
     private static float clamp(float v) { return Math.max(0f, Math.min(1f, v)); }
 
+    /** The aurora background of the opening and the giant curtains (the three lights, cropped, at 10 %). */
+    private void drawBack(Canvas c, float sc) {
+        Logo.drawAurora(c, w, h, 0.30f, 0.32f, 0.22f);
+        Logo.drawCurtains(c, 720 * sc, 40 * sc, 1100 * sc, 0.10f);
+    }
+
     @Override protected void onDraw(Canvas c) {
         if (finished) return;
         if (w == 0) { postInvalidateOnAnimation(); return; }   // not measured yet: try again, never stop
-        if (start < 0) {   // waiting: just the night black
-            c.drawColor(Brand.INK);
+        float sc = h / 720f;   // the design is 1280 x 720: one design pixel in this view
+        if (start < 0) {   // waiting: just the background (the same as the first frame, so nothing jumps when it starts)
+            drawBack(c, sc);
             return;
         }
         long now = SystemClock.uptimeMillis();
@@ -106,26 +113,24 @@ final class SplashView extends View {
         }
         // Everything is drawn on one layer that fades as a whole: the background and the logo leave together.
         int layer = c.saveLayerAlpha(0, 0, w, h, Math.round(255 * (1 - out)));
-        c.drawColor(Brand.INK);
-        c.drawRect(0, 0, w, h, glow);
+        drawBack(c, sc);
 
         long at = welcome ? WELCOME_AT : 0;
-        float u = h / 1000f * (welcome ? 0.78f : 1f);   // the logo's board is square; its content spans x 166-842, y 269-770
-        float ox = w / 2f - 504 * u, oy = (welcome ? h * 0.43f : h / 2f) - 520 * u;
-        {   // the slogan under the logo, once the logo is in (the welcome opening holds it longer, a bit higher)
-            float tp = clamp((t - (welcome ? WELCOME_TEXT_AT : SLOGAN_AT)) / 800f), te = 1f - (1f - tp) * (1f - tp);
-            text.setTypeface(Ui.displayMedium);
-            text.setTextSize(h * 0.038f);
+        float sym = 170 * sc * (welcome ? 0.78f : 1f);   // the symbol's height (design: 170)
+        float blockH = sym * (1 + Logo.V_GAP + Logo.V_TEXT);
+        float top = welcome ? h * 0.43f - blockH / 2f : 196 * sc;
+        float bottom = Logo.drawVertical(c, getContext(), w / 2f, top, sym, Math.max(0, t - at), reduced, 1f);
+        {   // the slogan under the logo, once the logo is in (the welcome opening holds it longer)
+            float tp = clamp((t - (welcome ? WELCOME_TEXT_AT : SLOGAN_AT)) / (float) SLOGAN_MS), te = CURVE.getInterpolation(tp);
+            text.setTypeface(Ui.medium);
+            text.setTextSize(20 * sc);
             text.setTextAlign(Paint.Align.CENTER);
             text.setColor(0xFFFFFFFF);
-            text.setAlpha(Math.round(235 * te));
-            c.drawText(Ui.tr("Sua TV, sob uma nova luz.", "Your TV, in a new light.", "Tu TV, bajo una nueva luz."), w / 2f, h * (welcome ? 0.685f : 0.81f) + (1 - te) * 12f, text);
+            text.setAlpha(Math.round(189 * te));   // white at 74 %
+            float lift = reduced ? 0f : (1 - te) * 8 * sc;
+            c.drawText(Ui.tr("Sua TV, sob uma nova luz.", "Your TV, in a new light.", "Tu TV, bajo una nueva luz."), w / 2f,
+                    bottom + 34 * sc - text.getFontMetrics().ascent + lift, text);
         }
-        Logo.drawWaves(c, ox, oy, u, clamp((t - at - RISE_AT) / (float) RISE_MS));
-        Logo.drawStar(c, ox, oy, u, clamp((t - at - STAR_AT) / 350f));
-        float np = clamp((t - at - NAME_AT) / (float) NAME_MS);
-        float ease = 1f - (1f - np) * (1f - np);
-        Logo.drawName(c, getContext(), ox, oy, u, ease, (1 - ease) * 18f);
         c.restoreToCount(layer);
         postInvalidateOnAnimation();
     }

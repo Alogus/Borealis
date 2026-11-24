@@ -65,12 +65,27 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
         Backdrop.preparePanel(this);   // the blurred backdrop of the keyboard and the weather screen, ready before they open
         view = new SettingsView(this);
         root = new android.widget.FrameLayout(this);
+        Bitmap[] caps = ScreenTransition.take();   // the screen below, captured just before (the default transition)
+        if (caps != null) {
+            bg = new ScreenTransition.Bg(this, caps);
+            root.addView(bg, new android.widget.FrameLayout.LayoutParams(-1, -1));
+            view.coverBg = true;
+        }
         root.addView(view, new android.widget.FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
+        startEntry();
+        if (getIntent().getBooleanExtra("hidden", false)) {   // straight onto the hidden apps screen: the list of settings never shows first
+            getIntent().removeExtra("hidden");
+            view.showHiddenApps();
+        }
     }
 
     /** The settings on screen right now (same process as the remote-key service), or null. */
     static volatile SettingsActivity current;
+    static volatile long leftAt;   // when the settings last left the screen
+    /** The wallpaper's soft backdrop, kept between openings (the home loads it ahead): Settings opens with its background already there. */
+    static volatile Bitmap softCache;
+    static volatile int softCacheIdx = -1;
 
     /** The Home button while the settings are open: the same soft fade as Back, and it always lands on the home screen. */
     void goHomeSoftly() {
@@ -83,13 +98,145 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             try {
                 app.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             } catch (RuntimeException ignored) {}
-        }, 400);
+        }, 650);
     }
 
-    /** Leaving the settings (Back) fades out into the home screen instead of cutting. */
+    // ---- The default transition (see ScreenTransition): in on open, out on Back.
+    private ScreenTransition.Bg bg;
+    private android.animation.ValueAnimator bgAnim;
+    private boolean locked, leaving, realFinish;
+    private int lockToken;
+    private long leavingAt;
+
+    /** Locks the keys while a transition plays, and always unlocks them: an animation that is cancelled never runs its end action. */
+    private void lock(long ms) {
+        locked = true;
+        final int t = ++lockToken;
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (t == lockToken) locked = false;
+        }, ms + 200);
+    }
+
+    private float lift() {
+        return 12f * getResources().getDisplayMetrics().widthPixels / 1280f;
+    }
+
+    // Full screens inside Settings (the shelf editor, the key picker, the hidden apps...): the same transition, over the screen they open from.
+    private final java.util.ArrayList<Bitmap[]> layers = new java.util.ArrayList<>();
+
+    private Bitmap snapshotRoot() {
+        int w = root.getWidth(), h = root.getHeight();
+        if (w <= 0 || h <= 0) return null;
+        try {
+            Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            root.draw(new android.graphics.Canvas(b));
+            return b;
+        } catch (RuntimeException | OutOfMemoryError e) {
+            return null;
+        }
+    }
+
+    /** A screen is about to open over the one on screen: that one (as it looks now) becomes the blurred background. */
+    void screenForward(Runnable change) {
+        Bitmap snap = bg == null || leaving || locked ? null : snapshotRoot();
+        if (snap == null) {
+            change.run();
+            return;
+        }
+        layers.add(bg.pics());
+        bg.setPics(new Bitmap[] {snap, ScreenTransition.blurred(snap)});
+        bg.q(0);
+        change.run();
+        animateIn(true);
+    }
+
+    /** Leaving that screen: the picture of it fades out over the screen underneath, which is already back. */
+    void screenBack(Runnable change) {
+        if (bg == null || layers.isEmpty()) {
+            change.run();
+            return;
+        }
+        Bitmap snap = leaving || locked ? null : snapshotRoot();
+        bg.setPics(layers.remove(layers.size() - 1));
+        bg.q(1);
+        change.run();
+        if (snap == null) return;
+        final View ghost = new View(this) {
+            @Override protected void onDraw(android.graphics.Canvas c) {
+                c.drawBitmap(snap, 0, 0, null);
+            }
+        };
+        ghost.setAlpha(1f);
+        root.addView(ghost, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        lock(ScreenTransition.OUT_BG_DELAY + ScreenTransition.OUT_BG_MS);
+        ghost.animate().alpha(0).setStartDelay(ScreenTransition.OUT_BG_DELAY).setDuration(ScreenTransition.OUT_BG_MS)
+                .setInterpolator(ScreenTransition.curveOut()).withEndAction(() -> {
+                    root.removeView(ghost);
+                    locked = false;
+                }).start();
+    }
+
+    private void startEntry() {
+        animateIn(false);
+    }
+
+    /** The default entry: the layers behind and the content rising in. `again` restarts it for a screen opened inside Settings. */
+    private void animateIn(boolean again) {
+        final android.view.animation.PathInterpolator curve = ScreenTransition.curve();
+        final boolean full = bg != null;
+        lock(Math.max(ScreenTransition.IN_MS, ScreenTransition.CONTENT_IN_DELAY + ScreenTransition.CONTENT_IN_MS) + 300);
+        view.animate().cancel();
+        if (bgAnim != null) bgAnim.cancel();
+        view.setAlpha(0);
+        view.setTranslationY(lift());
+        Runnable go = () -> {
+            if (isFinishing() || leaving) return;
+            if (full) {
+                bgAnim = android.animation.ValueAnimator.ofFloat(0f, 1f);
+                bgAnim.setDuration(ScreenTransition.IN_MS);
+                bgAnim.setInterpolator(curve);
+                bgAnim.addUpdateListener(a -> bg.q((Float) a.getAnimatedValue()));
+                bgAnim.start();
+            }
+            view.animate().alpha(1).translationY(0).setStartDelay(full ? ScreenTransition.CONTENT_IN_DELAY : 0)
+                    .setDuration(full ? ScreenTransition.CONTENT_IN_MS : 250).setInterpolator(curve)
+                    .withEndAction(() -> locked = false).start();
+        };
+        if (again) go.run(); else root.post(go);
+    }
+
+    private void playExit() {
+        leaving = true;
+        leavingAt = SystemClock.uptimeMillis();
+        locked = true;
+        final android.view.animation.PathInterpolator curve = ScreenTransition.curveOut();
+        final boolean full = bg != null;
+        view.animate().cancel();
+        if (bgAnim != null) bgAnim.cancel();
+        if (full) {
+            bgAnim = android.animation.ValueAnimator.ofFloat(bg.q(), 0f);
+            bgAnim.setStartDelay(ScreenTransition.OUT_BG_DELAY);
+            bgAnim.setDuration(ScreenTransition.OUT_BG_MS);
+            bgAnim.setInterpolator(curve);
+            bgAnim.addUpdateListener(a -> bg.q((Float) a.getAnimatedValue()));
+            bgAnim.start();
+        }
+        view.animate().alpha(0).translationY(lift()).setStartDelay(0)
+                .setDuration(full ? ScreenTransition.CONTENT_OUT_MS : 200).setInterpolator(curve).start();
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            realFinish = true;
+            finish();
+        }, full ? ScreenTransition.OUT_MS + 5 : 210);
+    }
+
+    /** Leaving the settings (Back) plays the default transition out and lands on the screen below, with no window animation. */
     @Override public void finish() {
+        if (!realFinish && view != null && root != null && !isFinishing()) {
+            if (!leaving) playExit();
+            return;
+        }
         super.finish();
-        overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
+        overridePendingTransition(0, 0);
     }
 
     @Override protected void onResume() {
@@ -98,10 +245,6 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
         current = this;
         view.resume();
         // From ADB: am start -n io.borealis/.SettingsActivity --ez screensaver true (straight to the preview).
-        if (getIntent().getBooleanExtra("shelf", false)) {   // from the home screen's empty slots
-            getIntent().removeExtra("shelf");
-            view.showShelfEditor();
-        }
         if (getIntent().getBooleanExtra("place", false)) {   // from the news modal "Weather location"
             getIntent().removeExtra("place");
             view.askPlace();
@@ -120,17 +263,34 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        final boolean toHidden = intent.getBooleanExtra("hidden", false);
+        if (view != null && toHidden) {   // before it is shown again, so the previous screen never flashes
+            intent.removeExtra("hidden");
+            view.showHiddenApps();
+        }
+        // The remote's Settings button while the hidden apps screen is open: it leads to Borealis's settings, not nowhere.
+        if (view != null && !toHidden && !intent.hasExtra("place") && !intent.hasExtra("screensaver")) {
+            view.leaveHiddenApps();
+        }
     }
 
     @Override protected void onPause() {
         if (view == null) { super.onPause(); return; }
         if (current == this) current = null;
+        leftAt = SystemClock.uptimeMillis();   // the home screen fades itself in when it comes back (see HomeView.resume)
         closePreview();     // before pausing the view: closing the preview resumes it (view.resume)
         view.pause();
         super.onPause();
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        // While the screen comes in nothing answers but Back; while it leaves, nothing at all.
+        if (leaving && SystemClock.uptimeMillis() - leavingAt > 1500 && !isFinishing()) {   // the exit never finished: finish it now
+            realFinish = true;
+            finish();
+            return true;
+        }
+        if (leaving || (locked && event.getKeyCode() != KeyEvent.KEYCODE_BACK)) return true;
         if (preview != null) {
             // Like the real screensaver: arrows, OK or Back close it (other keys go on to the system).
             switch (event.getKeyCode()) {
@@ -160,26 +320,38 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
     }
 
     /** Borealis's keyboard (see TextEntry): over the settings and over any screen of them. */
-    @Override public void askText(TextEntry.Request r) {
-        if (root == null || entry != null) return;
-        final TextEntryView[] mine = new TextEntryView[1];
-        mine[0] = new TextEntryView(this, r, () -> {
-            if (mine[0] != null) root.removeView(mine[0]);
-            if (entry == mine[0]) entry = null;
+    @Override public void askText(final TextEntry.Request r) {
+        if (root == null || entry != null || covering) return;
+        covering = true;
+        ScreenTransition.capture(this, caps -> {   // the screen it opens from, blurred, is its background
+            covering = false;
+            if (root == null || entry != null) return;
+            final TextEntryView[] mine = new TextEntryView[1];
+            mine[0] = new TextEntryView(this, r, () -> {
+                if (mine[0] != null) root.removeView(mine[0]);
+                if (entry == mine[0]) entry = null;
+            }, caps);
+            entry = mine[0];
+            root.addView(entry, new android.widget.FrameLayout.LayoutParams(-1, -1));
         });
-        entry = mine[0];
-        root.addView(entry, new android.widget.FrameLayout.LayoutParams(-1, -1));
     }
+
+    private boolean covering;   // a screen is being captured to open over this one
 
     /** The weather location screen (country and city), over the settings; the buttons close it. */
     void showPlace() {
-        if (place != null || root == null) return;
-        place = new PlaceScreen(this, () -> {
-            if (place != null) root.removeView(place);
-            place = null;
-            if (view != null) view.invalidate();
+        if (place != null || root == null || covering) return;
+        covering = true;
+        ScreenTransition.capture(this, caps -> {
+            covering = false;
+            if (place != null || root == null) return;
+            place = new PlaceScreen(this, () -> {
+                if (place != null) root.removeView(place);
+                place = null;
+                if (view != null) view.invalidate();
+            }, caps);
+            root.addView(place, new android.widget.FrameLayout.LayoutParams(-1, -1));
         });
-        root.addView(place, new android.widget.FrameLayout.LayoutParams(-1, -1));
     }
 
     void showPreview() {
@@ -197,14 +369,28 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
     }
 
     static final class SettingsView extends View implements Choreographer.FrameCallback {
-        private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5, WALLPAPERS = 6, GROUP = 7, AVATARS = 8, HIDDEN_APPS = 9;
-        private static final float LIST_ROW_H_BASE = 68, LIST_ROW_GAP_BASE = 6;
-        /** The long Home Settings list (13 rows with the dollar) gets slimmer rows so it still fits above the bottom edge. */
-        private boolean tight() {
-            return screen == HOME_SETTINGS && settingLabels().length > 10;
+        private static final int MAIN = 0, HOME_CHOICE = 1, REMOTE_KEYS = 3, PICKER = 4, WALLPAPERS = 6, GROUP = 7, AVATARS = 8, HIDDEN_APPS = 9, CREDITS = 10, ICON_EDIT = 11;
+        private static final float LIST_ROW_H = 68, LIST_ROW_GAP = 6;
+        private Paint headingP, hintP;
+        private float listPaintsK;
+
+        /** The title and the hint under a list (made once for the size of the screen, not on every frame). */
+        private Paint headingPaint() {
+            listPaints();
+            return headingP;
         }
-        private float listRowH() { return tight() ? 58 : LIST_ROW_H_BASE; }
-        private float listRowGap() { return tight() ? 4 : LIST_ROW_GAP_BASE; }
+
+        private Paint hintPaint() {
+            listPaints();
+            return hintP;
+        }
+
+        private void listPaints() {
+            if (headingP != null && listPaintsK == k) return;
+            headingP = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            hintP = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
+            listPaintsK = k;
+        }
         private static final int PICK_VISIBLE = 9;
         private static final float LIST_X = 1000, LIST_R = 1824, LIST_TOP = 186, ROW_H = 74, ROW_GAP = 8, CHOICE_H = 104;
         private static final int AMBER = 0xFFFFC266, INK = Brand.INK;
@@ -222,13 +408,28 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
         // The list picker (the app of a remote button): what it shows, which one is in use, where we are.
         private final List<String> pickLabels = new ArrayList<>();
         // The shelf editor: the apps it can hold (selected ones first, in order) and the selection.
-        private final List<String[]> shelfRows = new ArrayList<>();
-        private final List<String> shelfOrder = new ArrayList<>();
         private int pickFor, pickCurrent, pickScroll;   // pickFor: the remote button (index + 1)
         private final RectF tmp = new RectF(), rowRect = new RectF(), focusBox = new RectF();
         private JSONObject state = new JSONObject(), recs = new JSONObject();
         private boolean hasKey;
         private int screen = MAIN, focus;
+
+        // The full screens that open over another one use the default transition (see SettingsActivity.screenForward / screenBack).
+        private static boolean full(int s) {
+            return s == PICKER || s == HIDDEN_APPS || s == HOME_CHOICE || s == CREDITS || s == ICON_EDIT;
+        }
+
+        private void setScreen(int next) {
+            if (next == screen) return;
+            profLevel = 0;
+            clkOpen = false;
+            Context ctx = getContext();
+            SettingsActivity host = ctx instanceof SettingsActivity ? (SettingsActivity) ctx : null;
+            final int to = next;
+            if (host != null && !full(screen) && full(to)) host.screenForward(() -> screen = to);
+            else if (host != null && full(screen) && !full(to)) host.screenBack(() -> screen = to);
+            else screen = to;
+        }
         private int group;   // which of the five groups a GROUP screen shows (1–5)
         private float rowR = -1;   // a fixed corner radius for the next row background (cards); -1 = a pill
         private boolean running, okDown, backDown, wasBusy;
@@ -271,6 +472,7 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             super(a);
             activity = a;
             for (int i = 0; i < pop.length; i++) pop[i] = new Spring(0.28f, 0.85f, 0);
+            for (int i = 0; i < gridPop.length; i++) gridPop[i] = new Spring(0.2f, 0.9f, 0);
             HomeData.Weather wx = HomeData.get(a).weather;
             Shaders.sky(scene.palette, System.currentTimeMillis(), wx.sunrise, wx.sunset);
             scene.setMotion(0.5f, 0.2f);
@@ -288,7 +490,7 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 @Override public String text(int id) {
                     if (screen != WALLPAPERS && id == rowCount() + 2) return Ui.tr("Voltar", "Back", "Volver");
                     if (screen == MAIN && id == rowCount() + 1) {
-                        return Ui.tr("Perfil: ", "Profile: ", "Perfil: ") + Prefs.name() + ". " + Ui.tr("Aperte OK para mudar o avatar.", "Press OK to change the avatar.", "Presiona OK para cambiar el avatar.");
+                        return Ui.tr("Meu perfil", "My profile", "Mi perfil") + (Prefs.name().isEmpty() ? "" : ", " + Prefs.name()) + ". " + Ui.tr("Avatar e nome", "Avatar and name", "Avatar y nombre");
                     }
                     String t = screen == WALLPAPERS && id > rowCount() ? wpExtraText(id - rowCount())
                             : id >= 1 && id <= rowCount() ? rowText(id - 1) : "";
@@ -350,13 +552,13 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 case MAIN: return Ui.tr("Borealis, configurações", "Borealis settings", "Borealis, configuración");
                 case GROUP: return group >= 1 ? groupInfo()[group - 1][0] : "Borealis";
                 case HOME_CHOICE: return "Launcher";
-                case HOME_SETTINGS: return Ui.tr("Configurações", "Settings", "Configuración");
                 case REMOTE_KEYS: return groupInfo()[3][0];
                 case PICKER: return keyRawLabel(Math.max(0, Math.min(Prefs.KEYS.length - 1, pickFor - 1)));
-                case SHELF_EDIT: return groupLabel(ID_SHELF);
                 case AVATARS: return Ui.tr("Escolha seu avatar", "Choose your avatar", "Elige tu avatar");
                 case HIDDEN_APPS: return Ui.tr("Apps ocultos", "Hidden apps", "Apps ocultas");
-                case WALLPAPERS: return wpSaver ? groupLabel(ID_SAVER) : settingLabels()[WALLPAPER_ROW];
+                case ICON_EDIT: return groupLabel(ID_ICONS);
+                case CREDITS: return Ui.tr("Sobre o Borealis", "About Borealis", "Acerca de Borealis");
+                case WALLPAPERS: return wpSaver ? groupLabel(ID_SAVER) : settingLabel(WALLPAPER_ROW);
                 default: return "Borealis";
             }
         }
@@ -417,13 +619,15 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
         /** A row as TalkBack reads it: its name and its value, as on screen. */
         private String rowText(int row) {
             switch (screen) {
+                case CREDITS: return creditsSpoken();
+                case ICON_EDIT: return row >= 0 && row < 6 ? iconsCardText(row) : "";
                 case AVATARS:
                     return row < 0 || row >= Avatars.IDS.length ? "" : Avatars.name(row)
                             + (Avatars.IDS[row].equals(Avatars.current()) ? ", " + Ui.tr("selecionado", "selected", "seleccionado") : "");
                 case MAIN: {
                     String[][] info = groupInfo();
                     int[] order = groupOrder();
-                    return row < order.length ? info[order[row] - 1][0] + ", " + info[order[row] - 1][1] : "";
+                    return row < order.length ? info[order[row] - 1][0] + ", " + info[order[row] - 1][1] : supportTitle() + ", " + supportDesc();
                 }
                 case GROUP: {
                     int[] ids = groupIds();
@@ -442,10 +646,9 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                     boolean inUse = (row == 0) == homeIsBorealis();
                     return name + (inUse ? Ui.tr(". Em uso", ". In use") : "") + ", " + (row + 1) + Ui.tr(" de 2", " of 2");
                 }
-                case HOME_SETTINGS:
                 case REMOTE_KEYS: {
-                    boolean keys = screen == REMOTE_KEYS;
-                    String[] labels = keys ? keyLabels() : settingLabels(), values = keys ? keyValues() : settingValues();
+                    String[] labels = keyLabels(), values = keyValues();
+                    if (row == Prefs.KEYS.length) return groupLabel(ID_REMOTE) + ", " + groupValue(ID_REMOTE);
                     return row < labels.length ? labels[row] + ", " + values[row] : "";
                 }
                 case PICKER: {
@@ -459,14 +662,6 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                     return wpNames()[row] + (row == wpCurrent() ? Ui.tr(", em uso", ", in use", ", en uso") : "")
                             + ", " + (row + 1) + Ui.tr(" de ", " of ") + wpNames().length;
                 }
-                case SHELF_EDIT: {
-                    int at = pickScroll + row;
-                    if (at >= shelfRows.size()) return "";
-                    String[] app = shelfRows.get(at);
-                    int place = shelfOrder.indexOf(app[0]);
-                    return app[1] + ", " + (place >= 0 ? Ui.tr("na prateleira, posição ", "on the shelf, place ") + (place + 1)
-                            : Ui.tr("fora da prateleira", "not on the shelf"));
-                }
                 case HIDDEN_APPS:
                     return row >= 0 && row < hidItems.size() ? hidItems.get(row).label + ". "
                             + Ui.tr("Aperte OK para mostrar de novo.", "Press OK to show it again.", "Presiona OK para mostrarla de nuevo.") : "";
@@ -477,6 +672,24 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
 
         private RectF rowBox(int row) {
             float top, height;
+            if (twoCol() && w > 0) {
+                if (screen == MAIN) {
+                    top = cardTop(row);
+                    focusBox.set(C_L * k, top * k, (C_L + C_W) * k, (top + cardH(row)) * k);
+                } else {
+                    float t = rowTopAt(shownGroup(), row) - panelScroll.value;
+                    focusBox.set((P_L + 27) * k, t * k, (P_L + P_W - 27) * k, (t + rowH(shownGroup())) * k);
+                }
+                return focusBox;
+            }
+            if (screen == ICON_EDIT) {
+                iconsCard(Math.max(0, Math.min(5, row)), focusBox);
+                return focusBox;
+            }
+            if (screen == CREDITS) {
+                focusBox.set(0, 0, w, h);
+                return focusBox;
+            }
             if (screen == HIDDEN_APPS && !hidItems.isEmpty()) {
                 hidCell(Math.max(0, Math.min(row, hidItems.size() - 1)), focusBox);
                 return focusBox;
@@ -496,17 +709,13 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 top = LIST_TOP + 20 + row * (CHOICE_H + ROW_GAP);
                 height = CHOICE_H;
             } else {
-                top = LIST_TOP + 20 + row * (listRowH() + listRowGap());
-                height = listRowH();
+                top = LIST_TOP + 20 + row * (LIST_ROW_H + LIST_ROW_GAP);
+                height = LIST_ROW_H;
             }
             focusBox.set(LIST_X * k, top * k, LIST_R * k, (top + height) * k);
             return focusBox;
         }
 
-        void showShelfEditor() {
-            openShelfEditor();
-            invalidate();
-        }
 
         void resume() {
             if (running) return;
@@ -533,9 +742,9 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
 
         @Override public void doFrame(long frameTimeNanos) {
             if (!running) return;
-            boolean moving = busy() || !blinkSpring.settled();
+            boolean moving = busy() || !blinkSpring.settled() || screen == CREDITS || (screen == ICON_EDIT && SystemClock.uptimeMillis() - icoT0 < 320);
             for (Spring s : pop) moving |= !s.settled();
-            moving |= !wpBackPop.settled() || !wpIn.settled() || !profilePop.settled();
+            moving |= !wpBackPop.settled() || !wpIn.settled() || !profilePop.settled() || !panelScroll.settled() || profAnimating() || (clkT0 > 0 && SystemClock.uptimeMillis() - clkT0 < 400);
             if (screen == WALLPAPERS) moving |= !wpClean.settled() || !wpScroll.settled() || !wpBackPop.settled() || !wpCarPop.settled()
                     || !wpPillPop[0].settled() || !wpPillPop[1].settled() || !wpPillPop[2].settled() || !wpPillPop[3].settled() || !wpPillPop[4].settled() || wpFading() || (live != null && live.getAlpha() < 1f)
                     || (!wpSaver && SystemClock.uptimeMillis() - wpZoomAt >= 40);
@@ -577,7 +786,26 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             pillPaint.setColor(0x1AFFFFFF);
             shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
             shadow.setMaskFilter(new BlurMaskFilter(22 * k, BlurMaskFilter.Blur.NORMAL));
+            // The two-column layout (design board x 1.5).
+            pTitle = Ui.text(Logo.wordmark(getContext()), 66 * k, 0xFFFFFFFF);
+            pPanelTitle = Ui.text(Logo.wordmark(getContext()), 45 * k, 0xFFFFFFFF);
+            pLabel = Ui.text(Ui.semibold, 27 * k, 0xFFFFFFFF);
+            pLabelB = Ui.text(Ui.bold, 27 * k, 0xFFFFFFFF);
+            pValue = Ui.text(Ui.medium, 25.5f * k, 0xBDFFFFFF);
+            pValue.setTextAlign(Paint.Align.RIGHT);
+            pCardT = Ui.text(Ui.semibold, 28.5f * k, 0xFFFFFFFF);
+            pCardTB = Ui.text(Ui.bold, 28.5f * k, 0xFFFFFFFF);
+            pCardS = Ui.text(Ui.medium, 19.5f * k, 0xBDFFFFFF);
+            pLeftT = Ui.text(Ui.semibold, 25.5f * k, 0xFFFFFFFF);
+            pLeftTB = Ui.text(Ui.bold, 25.5f * k, 0xFFFFFFFF);
+            pLeftS = Ui.text(Ui.medium, 18 * k, 0xBDFFFFFF);
+            pProfT = Ui.text(Ui.semibold, 27 * k, 0xFFFFFFFF);
+            pProfTB = Ui.text(Ui.bold, 27 * k, 0xFFFFFFFF);
+            pFoot = Ui.text(Ui.regular, 20 * k, 0x80FFFFFF);
+            pPanel = new Paint(Paint.ANTI_ALIAS_FLAG);
         }
+        private Paint pLeftT, pLeftTB, pLeftS, pProfT, pProfTB;
+        private Paint pTitle, pPanelTitle, pLabel, pLabelB, pValue, pCardT, pCardTB, pCardS, pFoot, pPanel;
 
         private boolean busy() {
             return !state.optString("busy").isEmpty() || (pendingAt != 0 && SystemClock.uptimeMillis() - pendingAt < 10_000);
@@ -599,15 +827,16 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
 
         private int rowCount() {
             switch (screen) {
-                case MAIN: return 5;
+                case MAIN: return 6;
                 case GROUP: return groupIds().length;
                 case HOME_CHOICE: return 2;
-                case HOME_SETTINGS: return settingLabels().length;
                 case PICKER: return Math.min(PICK_VISIBLE, pickLabels.size());
-                case SHELF_EDIT: return Math.min(PICK_VISIBLE, shelfRows.size());
                 case AVATARS: return Avatars.IDS.length;
+                case CREDITS: return 1;
+                case ICON_EDIT: return 6;
                 case HIDDEN_APPS: return hidItems.size();
                 case WALLPAPERS: return wpFiles().length;
+                case REMOTE_KEYS: return Prefs.KEYS.length + 1;   // the four buttons and the remote's settings button
                 default: return Prefs.KEYS.length;
             }
         }
@@ -633,6 +862,16 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             if (screen != WALLPAPERS) wpBackPop.step(dt);
             wpIn.step(dt);
             profilePop.step(dt);
+            boolean inPanel = screen == MAIN && focus == -1;
+            fAv.target = inPanel && profLevel == 1 ? 1 : 0;
+            fName.target = inPanel && profLevel == 2 ? 1 : 0;
+            fAv.step(dt);
+            fName.step(dt);
+            for (int i = 0; i < gridPop.length; i++) {
+                gridPop[i].target = inPanel && profLevel == 3 && i == gridIdx ? 1 : 0;
+                gridPop[i].step(dt);
+            }
+            panelScroll.step(dt);
             blinkSpring.step(dt);
             if (screen == HIDDEN_APPS) {
                 for (int i = 0; i < hidPop.length; i++) {
@@ -663,6 +902,15 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 return;
             }
             if (wpSnap != null) dropSnapshot();
+            if (screen == ICON_EDIT) {   // the icons and layout editor over the blurred Settings
+                drawIcons(c);
+                return;
+            }
+            if (screen == CREDITS) {   // the rolling credits over the blurred Settings
+                drawBackground(c);
+                drawCredits(c, dt, (SystemClock.uptimeMillis() - startedAt) / 1000f);
+                return;
+            }
             if (screen == HIDDEN_APPS) {   // like the wallpaper picker: its blurred backdrop, a centered title, the Back button
                 drawBackground(c);
                 drawHiddenApps(c);
@@ -676,19 +924,22 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 scene.advance(seconds);
             }
             drawBackground(c);
+            if (twoCol()) {
+                drawTwoColumns(c, seconds);
+                return;
+            }
             drawProfile(c);
 
             // On the left: big symbol, title, description.
             float cx = 500 * k;
-            float lu = 0.82f * k;   // one unit of the logo's 1000-unit board; the name sits where the old title was
-            Logo.drawLockup(c, getContext(), cx - 500 * lu, 612 * k - 760 * lu, lu);
+            Logo.drawVertical(c, getContext(), cx, 210 * k, 232 * k, -1, false, 1f);   // the vertical logo; the name ends where the old title did
             c.drawText(Ui.tr("Início e tela de descanso da TV", "Your TV's home screen and screensaver"), cx, 660 * k, subtitle);
             c.drawText(versionName(getContext()), cx, 704 * k, version);
             c.drawText(Ui.tr("Desenhado e desenvolvido por Alogus Tov", "Designed and developed by Alogus Tov", "Diseñado y desarrollado por Alogus Tov"), cx, 742 * k, version);
             c.drawText("Powered by Free My TV", cx, 774 * k, version);
             c.drawText(Ui.tr("Usa a API do TMDB, sem apoio nem certificação do TMDB", "Uses the TMDB API; not endorsed or certified by TMDB", "Usa la API de TMDB; sin respaldo ni certificación de TMDB"), cx, 806 * k, version);
 
-            if (screen == MAIN) drawGroups(c); else if (screen == GROUP && group == 5) drawMain(c, seconds); else if (screen == HOME_CHOICE) drawChoice(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c); else if (screen == AVATARS) drawAvatarGrid(c); else drawList(c);
+            if (screen == HOME_CHOICE) drawChoice(c); else if (screen == PICKER) drawPicker(c); else if (screen == AVATARS) drawAvatarGrid(c); else drawList(c);
             drawBackButton(c);
         }
 
@@ -696,9 +947,17 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
          * The chosen wallpaper, tiny and blurred, at 80% over the night black: the same backdrop as the wallpaper picker.
          * A new wallpaper cross-fades in over the one before it.
          */
+        boolean coverBg;   // the default transition draws the background behind this view (the screen below, blurred)
+
         private void drawBackground(Canvas c) {
+            if (coverBg && screen != WALLPAPERS) return;
             c.drawColor(Brand.INK);
             final int wallpaper = Prefs.wallpaper();
+            if (bgSoft == null && softCache != null && softCacheIdx == wallpaper) {   // ready from before: no pop-in at the first frame
+                bgSoft = softCache;
+                bgIdx = wallpaper;
+                bgAt = 0;
+            }
             if (wallpaper != bgIdx && wallpaper != bgLoading) {
                 bgLoading = wallpaper;
                 new Thread(() -> {
@@ -706,6 +965,10 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                     final Bitmap soft = pic == null ? null : softBackdrop(pic);
                     if (pic != null) pic.recycle();
                     handler.post(() -> {
+                        if (soft != null) {
+                            softCache = soft;
+                            softCacheIdx = wallpaper;
+                        }
                         bgPrev = bgSoft;
                         bgSoft = soft;
                         bgIdx = wallpaper;
@@ -739,69 +1002,12 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
         private final Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF tmp2 = new RectF();
 
-        private void drawMain(Canvas c, float seconds) {
-            boolean working = busy();
-            String busyText = state.optString("busy");
-            String mode = homeName();
-            final int[] ids = groupIds();
-            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
-            c.drawText(Ui.tr("Sistema", "System", "Sistema"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
-            for (int i = 0; i < ids.length; i++) {
-                float y = (LIST_TOP + 20 + i * (ROW_H + ROW_GAP)) * k;
-                rowRect.set(LIST_X * k, y, LIST_R * k, y + ROW_H * k);
-                float f = drawRowBackground(c, i);
-                int ink = blend(0xF2FFFFFF, 0xFFFFFFFF, f);
-                rowLabel.setColor(ink);
-                float base = rowRect.centerY() + Ui.halfCap(rowLabel);
-                c.drawText(groupLabel(ids[i]), rowRect.left + 30 * k, base, rowLabel);
-                float right = rowRect.right - 30 * k;
-                if (ids[i] != ID_LAUNCHER) {
-                    float cw = Symbols.width(getContext(), "chevron_right", 22 * k);
-                    Symbols.draw(getContext(), c, "chevron_right", right - cw / 2, rowRect.centerY(), 22 * k, blend(0x66FFFFFF, 0xCCFFFFFF, f));
-                } else if (working) {
-                    // Switching: the current step in place of the value, with the spinning arc.
-                    String text = busyText.isEmpty() ? Ui.tr("Começando…", "Starting…") : busyText;
-                    rowValue.setColor(blend(0xB3FFFFFF, 0xE6FFFFFF, f));
-                    String shown = TextUtils.ellipsize(text, new TextPaint(rowValue), 470 * k, TextUtils.TruncateAt.END).toString();
-                    c.drawText(shown, right, base, rowValue);
-                    float sx = right - rowValue.measureText(shown) - 26 * k;
-                    spinner.setColor(blend(0xFFFFFFFF, 0xFFFFFFFF, f));
-                    Ui.spinner(c, sx, rowRect.centerY(), 12 * k, seconds * 1.3f, spinner);
-                } else {
-                    rowValue.setColor(blend(0xB3FFFFFF, 0xE6FFFFFF, f));
-                    c.drawText(mode, right, base, rowValue);
-                }
-            }
-
-            float y = (LIST_TOP + 20 + ids.length * (ROW_H + ROW_GAP) + 20) * k;
-            String error = state.optString("error");
-            if (working && (busyText.contains("Permitir") || busyText.contains("Allow"))) {
-                c.drawText(Ui.tr("Na TV: marque “Sempre permitir” e aperte OK.", "On the TV: tick “Always allow” and press OK."),
-                        LIST_X * k + 30 * k, y, warn);
-                y += 46 * k;
-            } else if (!working && !error.isEmpty() && !(state.optBoolean("soft") && remoteButtonOn())) {
-                // The whole message, on up to five lines: some say what to do (the Wi-Fi one, #14).
-                int width = Math.round(760 * k);
-                if (errorLayout == null || !error.equals(errorShown) || errorLayout.getWidth() != width) {
-                    errorShown = error;
-                    errorLayout = StaticLayout.Builder.obtain(error, 0, error.length(), new TextPaint(warn), width)
-                            .setMaxLines(5).setEllipsize(TextUtils.TruncateAt.END).build();
-                }
-                c.save();
-                c.translate(LIST_X * k + 30 * k, y - errorLayout.getLineBaseline(0));
-                errorLayout.draw(c);
-                c.restore();
-                y += errorLayout.getLineBaseline(errorLayout.getLineCount() - 1) - errorLayout.getLineBaseline(0) + 46 * k;
-            }
-            y = drawComparison(c, y);
-            y = drawRecs(c, y + 26 * k);
-            drawNotices(c, y + 40 * k);
-        }
-
         /** Home screen picks: status, and the credit TMDB asks for. */
-        private float drawRecs(Canvas c, float y) {
-            float x = LIST_X * k + 30 * k;
+        private float drawRecs(Canvas c, float y, boolean credit) {
+            float x = secX;
+            header.setColor(PEACH);
             c.drawText(Ui.tr("RECOMENDAÇÕES", "RECOMMENDATIONS"), x, y, header);
+            header.setColor(0x73FFFFFF);
             String line;
             String error = recs.optString("error");
             int count = recs.optInt("count");
@@ -810,12 +1016,13 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             else if (count > 0) line = Ui.tr("Ligadas · " + count + " títulos nos apps da TV, 3 novos a cada hora.",
                     "On · " + count + " titles from the TV's apps, 3 new ones every hour.");
             else line = Ui.tr("Buscando os títulos…", "Fetching titles…");
-            c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + 42 * k, notice);
+            c.drawText(TextUtils.ellipsize(line, notice, secR - secX, TextUtils.TruncateAt.END).toString(), x, y + 34 * k, notice);
+            if (!credit) return y + 34 * k;   // the TMDB credit lives in "Acerca de Borealis"
             version.setTextAlign(Paint.Align.LEFT);
             c.drawText(Ui.tr("Usa a API do TMDB, sem endosso ou certificação do TMDB.",
-                    "This product uses the TMDB API but is not endorsed or certified by TMDB."), x, y + 78 * k, version);
+                    "This product uses the TMDB API but is not endorsed or certified by TMDB."), x, y + 64 * k, version);
             version.setTextAlign(Paint.Align.CENTER);
-            return y + 78 * k;
+            return y + 64 * k;
         }
 
         /** List row: a soft translucent pill; focused, night-black with the lily → peach → melon ring (as the home's pills). Returns how focused it is. */
@@ -873,8 +1080,10 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
         }
 
         private float drawComparison(Canvas c, float y) {
-            float x = LIST_X * k + 30 * k, colA = LIST_R * k - 220 * k, colB = LIST_R * k - 30 * k;
+            float x = secX, colA = secR - 190 * k, colB = secR;
+            header.setColor(LILY);
             c.drawText(Ui.tr("COMPARAÇÃO", "COMPARISON"), x, y, header);
+            header.setColor(0x73FFFFFF);
             cellValue.setColor(0x73FFFFFF);
             c.drawText("Original", colA, y, cellValue);
             c.drawText("Borealis", colB, y, cellValue);
@@ -885,32 +1094,34 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             String[][] rows = {{Ui.tr("Botão Início", "Home button"), "homeMs"}, {Ui.tr("Memória livre", "Free memory"), "memAvailableMB"},
                     {Ui.tr("Memória do Início", "Home screen memory"), "homePssMB"}};
             for (int i = 0; i < rows.length; i++) {
-                float base = y + (46 + 40 * i) * k;
+                float base = y + (44 + 36 * i) * k;
                 c.drawText(rows[i][0], x, base, cellLabel);
                 c.drawText(metric(a, rows[i][1]), colA, base, cellValue);
                 c.drawText(metric(b, rows[i][1]), colB, base, cellValue);
             }
-            return y + (46 + 40 * rows.length) * k;
+            return y + (44 + 36 * (rows.length - 1)) * k;
         }
 
         private void drawNotices(Canvas c, float y) {
-            float x = LIST_X * k + 30 * k;
+            float x = secX;
+            header.setColor(MELON);
             c.drawText(Ui.tr("AVISOS", "NOTICES"), x, y, header);
+            header.setColor(0x73FFFFFF);
             JSONArray notices = state.optJSONArray("notices");
             int shown = 0;
             for (int i = 0; notices != null && i < notices.length() && shown < 2; i++) {
                 JSONObject o = notices.optJSONObject(i);
                 if (o == null) continue;
                 String line = ago(o.optLong("at")) + " · " + o.optString("text");
-                c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + (42 + 38 * shown) * k, notice);
+                c.drawText(TextUtils.ellipsize(line, notice, secR - secX, TextUtils.TruncateAt.END).toString(), x, y + (34 + 32 * shown) * k, notice);
                 shown++;
             }
-            if (shown == 0) c.drawText(Ui.tr("Nenhum ainda.", "None yet."), x, y + 42 * k, notice);
+            if (shown == 0) c.drawText(Ui.tr("Nenhum ainda.", "None yet."), x, y + 34 * k, notice);
         }
 
         /** Home screen choice: Borealis or the original, with a check on the one in use. */
         private void drawChoice(Canvas c) {
-            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            Paint heading = headingPaint();
             c.drawText(Ui.tr("Início", "Home Screen"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             String[][] options = {{"Borealis", Ui.tr("Sem anúncios, com a tela de descanso nova", "No ads, with the new screensaver")},
                     {"Original", Ui.tr("O Início de fábrica da TV", "The TV's factory home screen")}};
@@ -928,7 +1139,7 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                     Symbols.draw(getContext(), c, "check", rowRect.right - 30 * k - cw / 2, rowRect.centerY(), 26 * k, blend(0xFFFFFFFF, 0xFFFFFFFF, f));
                 }
             }
-            Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
+            Paint hint = hintPaint();
             c.drawText(Ui.tr("A troca leva uns segundos e a tela pisca nas medições.",
                     "Switching takes a few seconds; the screen blinks while it measures."), LIST_X * k + 30 * k,
                     (LIST_TOP + 20 + 2 * (CHOICE_H + ROW_GAP) + 40) * k, hint);
@@ -984,7 +1195,8 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 int code = e.getKeyCode();
                 boolean ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
                 boolean side = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT;
-                if (!ok && (before != moveSig() || (side && (screen == GROUP || screen == HOME_SETTINGS || screen == SHELF_EDIT)))) click().move();
+                boolean ownSound = screen == GROUP && group == 1 && clkOpen;   // the sound picker plays its own sounds
+                if (!ok && !ownSound && (before != moveSig() || (side && screen == GROUP))) click().move();
             }
             return handled;
         }
@@ -994,12 +1206,16 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             if (down) introId = -1;
             if (screen == WALLPAPERS && e.getKeyCode() != KeyEvent.KEYCODE_BACK) return wallpaperKey(e, down);
             if (screen == AVATARS && e.getKeyCode() != KeyEvent.KEYCODE_BACK) return avatarKey(e, down);
+            if (screen == MAIN && focus == -1 && profLevel > 0) return profileKey(e, down);
+            if (screen == CREDITS && e.getKeyCode() != KeyEvent.KEYCODE_BACK) return creditsKey(e, down);
+            if (screen == ICON_EDIT && e.getKeyCode() != KeyEvent.KEYCODE_BACK) return iconsKey(e, down);
+            if (screen == GROUP && group == 1 && clkOpen) return clicksKey(e, down);
             if (screen == HIDDEN_APPS && e.getKeyCode() != KeyEvent.KEYCODE_BACK) return hiddenKey(e, down);
             switch (e.getKeyCode()) {
                 case KeyEvent.KEYCODE_DPAD_UP:
                     if (down && focus == -1) focus = rowCount() - 1;   // the profile: up goes round to the last card
                     else if (down && focus == -2) { /* the Back button is the top */ }
-                    else if (down && screen == MAIN && focus == 0 && hasProfile()) focus = -1;   // the first card: up to the profile
+                    else if (down && screen == MAIN && focus == 0 && hasProfile()) focus = -1;   // the first card: up to "Mi perfil"
                     else if (down && screen == MAIN && focus == 0) focus = rowCount() - 1;   // no profile: round to the last
                     else if (down && focus == 0 && (!scrolling() || pickScroll == 0)) focus = -2;   // the first row: up to the Back button
                     else if (down && focus > 0) focus--;
@@ -1009,7 +1225,7 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                     return true;
                 case KeyEvent.KEYCODE_DPAD_DOWN:
                     if (down && focus < 0) focus = 0;   // from the profile or the Back button: into the list
-                    else if (down && screen == MAIN && focus == rowCount() - 1) focus = 0;   // the last card: round to the first
+                    else if (down && screen == MAIN && focus == rowCount() - 1) focus = -1;   // the last card: round to "Mi perfil"
                     else if (down && focus < rowCount() - 1) focus++;
                     else if (down && scrolling() && pickScroll + rowCount() < listSize()) pickScroll++;
                     invalidate();
@@ -1017,26 +1233,22 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                     return true;
                 case KeyEvent.KEYCODE_DPAD_LEFT:
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
-                    if (down && screen == MAIN && e.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT && focus >= -1) {
-                        focus = -2;   // left: the Back button
-                    } else if (down && screen == MAIN && e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT && focus == -2) {
-                        if (hasProfile()) focus = -1;
-                    } else if (down && screen == MAIN && e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT && focus >= 0 && hasProfile()) {
-                        focus = -1;   // right: the profile
+                    if (down && screen == MAIN && e.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT) {
+                        // the cards are the first column: nothing to their left (Back leaves)
+                    } else if (down && screen == MAIN && e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT && focus >= 0 && focus != SUPPORT) {
+                        activate();   // right: into the group's panel
+                    } else if (down && (screen == GROUP || screen == REMOTE_KEYS) && e.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT) {
+                        goBack();   // left: back to the cards
+                    } else if (down && screen == MAIN && focus == -1) {
+                        enterProfile();   // right: into the profile's panel
                     } else if (down && focus < 0) {
                         // chrome: nothing to adjust
-                    } else if (down && screen == SHELF_EDIT) {
-                        moveShelfApp(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
-                        invalidate();
                     } else if (down && screen == GROUP) {
                         int id = groupIds()[focus];
-                        if ((id < 100 && id != WALLPAPER_ROW) || id == ID_SPLASH || id == ID_SOUND || id == ID_CLICKS || id == ID_UPDATE_AUTO) {
+                        if ((id < 100 && id != WALLPAPER_ROW) || id == ID_SPLASH || id == ID_SOUND || id == ID_UPDATE_AUTO) {
                             adjustSetting(id, e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
                             invalidate();
                         }
-                    } else if (down && screen == HOME_SETTINGS && focus != WALLPAPER_ROW) {
-                        adjust(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
-                        invalidate();
                     }
                     return true;
                 case KeyEvent.KEYCODE_DPAD_CENTER:
@@ -1072,36 +1284,41 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 ((android.app.Activity) getContext()).finish();
                 return;
             }
+            for (Spring sp : pop) sp.snap(0);   // the old row's focus must not carry over to a card
             if (screen == PICKER) {
                 focus = keyPos(pickFor - 1);
-                screen = REMOTE_KEYS;
+                setScreen(REMOTE_KEYS);
             } else if (screen == AVATARS) {
-                screen = MAIN;
+                setScreen(MAIN);
                 focus = -1;   // back on the profile
             } else if (screen == WALLPAPERS) {
                 closeWallpapers();
+            } else if (screen == ICON_EDIT) {   // back to the row; what was not applied is dropped
+                group = 2;
+                setScreen(GROUP);
+                focus = groupIndexOf(2, ID_ICONS);
+            } else if (screen == CREDITS) {
+                group = 5;
+                setScreen(GROUP);
+                focus = groupIndexOf(5, ID_ABOUT);
             } else if (screen == HIDDEN_APPS) {
                 if (hidFromHome) {   // opened from the card in All Apps: back out to the home screen
                     ((android.app.Activity) getContext()).finish();
                     return;
                 }
                 group = 2;
-                screen = GROUP;
-                focus = groupIndexOf(2, ID_HIDDEN);
+                setScreen(GROUP);
+                focus = groupIndexOf(2, ID_ICONS);
             } else if (screen == GROUP) {
                 focus = groupPos(group);
-                screen = MAIN;
-            } else if (screen == SHELF_EDIT) {
-                group = 2;
-                screen = GROUP;
-                focus = groupIndexOf(2, ID_SHELF);
+                setScreen(MAIN);
             } else if (screen == HOME_CHOICE) {
                 group = 5;
-                screen = GROUP;
+                setScreen(GROUP);
                 focus = 0;
             } else {
                 focus = screen == REMOTE_KEYS ? groupPos(4) : 0;
-                screen = MAIN;
+                setScreen(MAIN);
             }
             invalidate();
             spoken.focusMoved();
@@ -1115,13 +1332,13 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 {Ui.tr("Aparência", "Appearance", "Apariencia"),
                         Ui.tr("Papel de parede e protetor de tela", "Wallpaper and screensaver", "Fondo de pantalla y protector")},
                 {Ui.tr("Tela principal", "Home screen", "Pantalla principal"),
-                        Ui.tr("Cartões, prateleira e widgets", "Cards, shelf and widgets", "Tarjetas, estante y widgets")},
+                        Ui.tr("Cartões, ícones e widgets", "Cards, icons and widgets", "Tarjetas, iconos y widgets")},
                 {Ui.tr("Preferências", "Preferences", "Preferencias"),
-                        Ui.tr("Idioma, temperatura, hora, seu nome e boas-vindas", "Language, temperature, time, your name and welcome", "Idioma, temperatura, hora, tu nombre y bienvenida")},
+                        Ui.tr("Idioma, temperatura e hora", "Language, temperature and time", "Idioma, temperatura y hora")},
                 {Ui.tr("Controle remoto", "Remote control", "Control remoto"),
                         Ui.tr("O que abre cada botão", "What each button opens", "Qué abre cada botón")},
                 {Ui.tr("Sistema", "System", "Sistema"),
-                        Ui.tr("Launcher, ajustes da TV e estado", "Launcher, TV settings and status", "Launcher, ajustes de la TV y estado")}};
+                        Ui.tr("Launcher, TV e estado", "Launcher, TV and status", "Launcher, TV y estado")}};
         }
 
         /** Alphabetical order in the language in use. */
@@ -1129,15 +1346,9 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             return java.text.Collator.getInstance(Ui.locale());
         }
 
-        /** The groups (1–5) in alphabetical order of their names: the order of the cards. */
+        /** The groups (1–5) as the design orders the cards: Appearance, Home screen, Preferences, Remote, System. */
         private int[] groupOrder() {
-            final String[][] info = groupInfo();
-            final java.text.Collator col = collator();
-            Integer[] g = {1, 2, 3, 4, 5};
-            java.util.Arrays.sort(g, (a, b) -> col.compare(info[a - 1][0], info[b - 1][0]));
-            int[] out = new int[5];
-            for (int i = 0; i < 5; i++) out[i] = g[i];
-            return out;
+            return new int[] {1, 2, 3, 4, 5};
         }
 
         private int groupPos(int g) {
@@ -1146,36 +1357,13 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             return 0;
         }
 
-        private int[] sortedByName(int... ids) {
-            final java.text.Collator col = collator();
-            Integer[] a = new Integer[ids.length];
-            for (int i = 0; i < ids.length; i++) a[i] = ids[i];
-            java.util.Arrays.sort(a, (x, y) -> col.compare(groupLabel(x), groupLabel(y)));
-            int[] out = new int[ids.length];
-            for (int i = 0; i < ids.length; i++) out[i] = a[i];
-            return out;
-        }
-
         /** The rows of the open group: ids of the old Home Settings rows, plus the ID_* ones. */
         private int[] groupIds() {
             switch (group) {
-                case 1: return sortedByName(WALLPAPER_ROW, ID_SAVER, ID_SPLASH, ID_SOUND, ID_CLICKS);
-                case 2: {
-                    int[] top = sortedByName(5, 6, ID_SHELF, ID_HIDDEN, ID_PLACE, 7, 8);
-                    int coins = Math.max(0, settingLabels().length - COIN_ROWS);
-                    int[] coinIds = new int[coins];
-                    for (int i = 0; i < coins; i++) coinIds[i] = COIN_ROWS + i;
-                    coinIds = sortedByName(coinIds);
-                    int[] ids = new int[top.length + coins];
-                    int n = 0;
-                    for (int id : top) {
-                        ids[n++] = id;
-                        if (id == 8) for (int cid : coinIds) ids[n++] = cid;   // the coins stay under the quotes widget
-                    }
-                    return ids;
-                }
-                case 3: return sortedByName(0, 1, 3, 4, ID_REMOTE, ID_WELCOME);
-                default: return sortedByName(ID_LAUNCHER, ID_TV, ID_UPDATE, ID_UPDATE_AUTO);
+                case 1: return new int[] {WALLPAPER_ROW, ID_SAVER, ID_SPLASH, ID_SOUND, ID_CLICKS};
+                case 2: return new int[] {5, 6, ID_ICONS, 7, ID_PLACE};
+                case 3: return new int[] {0, 1, 3, ID_WELCOME, ID_TOUR};
+                default: return new int[] {ID_LAUNCHER, ID_TV, ID_UPDATE, ID_UPDATE_AUTO, ID_ABOUT};
             }
         }
 
@@ -1188,22 +1376,31 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             return 0;
         }
 
+        private String iconsValue() {
+            int c = Prefs.iconCols(), r = c == 6 ? 4 : c == 10 ? 6 : 5, sh = Prefs.iconShape();
+            String name = sh == 1 ? Ui.tr("Quadrada", "Square", "Cuadrada") : sh == 2 ? Ui.tr("Circular", "Circular", "Circular")
+                    : Ui.tr("Retangular", "Rectangular", "Rectangular");
+            return c + " × " + r + " · " + name;
+        }
+
         private String groupLabel(int id) {
             switch (id) {
                 case ID_SAVER: return Ui.tr("Protetor de tela", "Screensaver", "Protector de pantalla");
-                case ID_SHELF: return Ui.tr("Prateleira", "Shelf", "Estante de apps");
+                case ID_ICONS: return Ui.tr("Ícones e distribuição dos apps", "Icons and layout of the apps", "Iconos y distribución de las apps");
                 case ID_HIDDEN: return Ui.tr("Apps ocultos", "Hidden apps", "Apps ocultas");
                 case ID_LAUNCHER: return "Launcher";
                 case ID_SPLASH: return Ui.tr("Logo do launcher ao ligar a TV", "Launcher logo when the TV turns on", "Logo del launcher al encender la TV");
                 case ID_SOUND: return Ui.tr("Som de abertura", "Startup sound", "Sonido de inicio");
-                case ID_CLICKS: return Ui.tr("Som dos cliques", "Click sounds", "Sonido de los clics");
+                case ID_CLICKS: return Ui.tr("Cliques", "Clicks", "Clics");
                 case ID_PLACE: return Ui.tr("Localização do clima", "Weather location", "Ubicación del clima");
                 case ID_TV: return Ui.tr("Ajustes da TV", "TV Settings", "Ajustes de la TV");
                 case ID_REMOTE: return Ui.tr("Botão de ajustes do controle", "Remote's settings button", "Botón de ajustes del control");
-                case ID_WELCOME: return Ui.tr("Repetir as boas-vindas", "Replay the welcome", "Repetir bienvenida");
+                case ID_WELCOME: return Ui.tr("Repetir as boas-vindas", "Repeat the welcome", "Repetir bienvenida");
+                case ID_TOUR: return Ui.tr("Conheça o Borealis", "Get to know Borealis", "Conoce Borealis");
                 case ID_UPDATE: return Ui.tr("Atualizações", "Updates", "Actualizaciones");
                 case ID_UPDATE_AUTO: return Ui.tr("Buscar atualizações sozinho", "Check for updates by itself", "Buscar actualizaciones solo");
-                default: return settingLabels()[id];
+                case ID_ABOUT: return Ui.tr("Sobre o Borealis", "About Borealis", "Acerca de Borealis");
+                default: return settingLabel(id);
             }
         }
 
@@ -1215,10 +1412,14 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 }
                 case ID_SPLASH: return onOff(Prefs.splash());
                 case ID_SOUND: return onOff(Prefs.startupSound());
-                case ID_CLICKS: return onOff(Prefs.clicks());
+                case ID_CLICKS: return clicksValue();
                 case ID_PLACE: return Prefs.city().isEmpty() ? Ui.tr("Escolher", "Choose", "Elegir") : Prefs.city();
                 case ID_REMOTE: return onOff(remoteButtonOn());
-                case ID_SHELF: case ID_TV: case ID_WELCOME: return "";
+                case ID_ICONS: return iconsValue();
+                case ID_TV: return "";
+                case ID_WELCOME: return Ui.tr("Configure a sua TV de novo", "Set up your TV again", "Configura tu TV de nuevo");
+                case ID_TOUR: return Ui.tr("Veja o que você pode fazer", "See what you can do", "Mira lo que puedes hacer");
+                case ID_ABOUT: return Ui.tr("Créditos e versão", "Credits and version", "Créditos y versión");
                 case ID_HIDDEN: { int n = Prefs.hiddenApps().size(); return n == 0 ? "" : String.valueOf(n); }
                 case ID_UPDATE: {
                     String newer = Update.newer(getContext());
@@ -1227,7 +1428,7 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 }
                 case ID_UPDATE_AUTO: return onOff(Prefs.updateAuto());
                 case ID_LAUNCHER: return homeName();
-                default: return settingValues()[id];
+                default: return settingValue(id);
             }
         }
 
@@ -1267,7 +1468,7 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
 
         /** Rows that open another screen (a chevron at the right) instead of changing a value in place. */
         private static boolean opensScreen(int id) {
-            return id == WALLPAPER_ROW || id == ID_SAVER || id == ID_SHELF || id == ID_HIDDEN || id == ID_LAUNCHER || id == ID_TV || id == ID_WELCOME;
+            return id == WALLPAPER_ROW || id == ID_SAVER || id == ID_ICONS || id == ID_HIDDEN || id == ID_LAUNCHER || id == ID_TV || id == ID_WELCOME || id == ID_TOUR;
         }
 
         private Paint profileText;
@@ -1277,12 +1478,13 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
         private final android.graphics.Path pencilPath = new android.graphics.Path();
 
         private boolean hasProfile() {
+            if (twoCol()) return screen == MAIN;   // "Mi perfil": the first card of the first screen
             return !Avatars.current().isEmpty() || !Prefs.name().isEmpty();
         }
 
         /** Top left: the profile's avatar and name (when there are any). On the first screen it can be reached (up from the first card) and its pencil opens the avatars. */
         private void drawProfile(Canvas c) {
-            String avatar = Avatars.current(), name = Prefs.name();
+            String avatar = Avatars.current(), name = twoCol() ? "" : Prefs.name();
             if (avatar.isEmpty() && name.isEmpty()) {
                 profileRect.setEmpty();
                 return;
@@ -1290,17 +1492,19 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             if (profileText == null) {
                 profileText = Ui.text(Ui.medium, 28 * k, 0xE6FFFFFF);
             }
-            float r = 34 * k, cy = (LIST_TOP - 24 - 12) * k;   // the same level as the screen's title
+            boolean two = twoCol();
+            float r = (two ? 30 : 34) * k, cy = two ? 100 * k : (LIST_TOP - 24 - 12) * k;   // the same level as the screen's title
             float textW = name.isEmpty() ? 0 : profileText.measureText(name);
             float inner = (avatar.isEmpty() ? 0 : 2 * r + (name.isEmpty() ? 0 : 20 * k)) + textW;
-            float x = LIST_R * k - 26 * k - inner;   // right-aligned with the cards, above them
+            float x = two ? (C_L + C_W) * k - inner : LIST_R * k - 26 * k - inner;   // right-aligned with the cards, above them
             float cx = x + r;
             float textX = avatar.isEmpty() ? x : x + 2 * r + 20 * k;
             float endX = textX + textW;
             profileRect.set(x - 16 * k, cy - r - 12 * k, endX + 26 * k, cy + r + 12 * k);
+            if (two) profileRect.set(cx - r - 8 * k, cy - r - 8 * k, cx + r + 8 * k, cy + r + 8 * k);
             boolean editable = screen == MAIN && !avatar.isEmpty();
             float f = editable ? Ui.clamp(profilePop.value) : 0;
-            if (f > 0.01f) {   // the focus: a dark pill with the gradient ring
+            if (f > 0.01f && !two) {   // the focus: a dark pill with the gradient ring
                 float rr = profileRect.height() / 2;
                 white.setColor(INK);
                 white.setAlpha(Math.round(220 * f));
@@ -1316,6 +1520,7 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 ringPaint.setColor(0xFFFFFFFF);
             }
             if (!avatar.isEmpty()) Avatars.draw(c, getContext(), avatar, cx, cy, r, 1f);
+            if (f > 0.01f && two) avatarRing(c, cx, cy, r, 6 * k, f);   // the focus: the gradient ring flush on the round avatar, no background
             if (!name.isEmpty()) c.drawText(name, textX, cy + Ui.halfCap(profileText), profileText);
             if (editable) drawPencilBadge(c, cx + r * 0.72f, cy + r * 0.72f, 15 * k);
         }
@@ -1352,14 +1557,6 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
         // MARK: - Avatars (opened from the profile)
 
         private static final int AV_COLS = 5;
-
-        private void openAvatars() {
-            screen = AVATARS;
-            focus = Math.max(0, java.util.Arrays.asList(Avatars.IDS).indexOf(Avatars.current()));
-            Avatars.preload(getContext());
-            invalidate();
-            spoken.focusMoved();
-        }
 
         private void avatarCell(int i, RectF out) {
             float d = 132, gap = 22, x = LIST_X + 24 + (i % AV_COLS) * (d + gap), y = LIST_TOP + 40 + (i / AV_COLS) * (d + gap);
@@ -1417,7 +1614,7 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
         }
 
         private void drawAvatarGrid(Canvas c) {
-            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            Paint heading = headingPaint();
             c.drawText(Ui.tr("Escolha seu avatar", "Choose your avatar", "Elige tu avatar"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             String cur = Avatars.current();
             for (int i = 0; i < Avatars.IDS.length; i++) {
@@ -1468,87 +1665,2033 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             ringPaint.setColor(0xFFFFFFFF);
         }
 
-        private Paint cardTitle;
 
-        /** First screen: the five groups as cards. */
-        private void drawGroups(Canvas c) {
-            String[][] info = groupInfo();
-            String[] symbols = {"sparkles", "home", "settings", "gamepad", "tv_settings"};
-            int[] order = groupOrder();
-            if (cardTitle == null) cardTitle = Ui.text(Ui.displaySemibold, 36 * k, 0xFFFFFFFF);
-            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
-            c.drawText(Ui.tr("Configurações", "Settings", "Configuración"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
-            rowR = 30 * k;
-            for (int i = 0; i < 5; i++) {
-                float y = (LIST_TOP + 20 + i * (CARD_H + CARD_GAP)) * k;
-                rowRect.set(LIST_X * k, y, LIST_R * k, y + CARD_H * k);
-                float f = drawRowBackground(c, i);
-                cardTitle.setColor(blend(0xF2FFFFFF, 0xFFFFFFFF, f));
-                rowSub.setColor(blend(0xB3FFFFFF, 0xE6FFFFFF, f));
-                Symbols.draw(getContext(), c, symbols[order[i] - 1], rowRect.left + 74 * k, rowRect.centerY(), 46 * k, blend(0xCCFFFFFF, 0xFFFFFFFF, f));
-                float tx = rowRect.left + 140 * k;
-                c.drawText(info[order[i] - 1][0], tx, rowRect.centerY() - 6 * k, cardTitle);
-                c.drawText(info[order[i] - 1][1], tx, rowRect.centerY() + 34 * k, rowSub);
-                float cw = Symbols.width(getContext(), "chevron_right", 24 * k);
-                Symbols.draw(getContext(), c, "chevron_right", rowRect.right - 36 * k - cw / 2, rowRect.centerY(), 24 * k, blend(0x66FFFFFF, 0xCCFFFFFF, f));
+        // MARK: - Mi perfil (first card of the left column and its panel; see the design delivery)
+
+        private int profLevel;   // 0 the card only, 1 the avatar in the panel, 2 the name field, 3 the list of avatars
+        private int gridIdx;
+        private boolean gridOpen;
+        private long gridT0, popT0;
+        private final Spring fAv = new Spring(0.2f, 0.9f, 0), fName = new Spring(0.2f, 0.9f, 0);
+        private final Spring[] gridPop = new Spring[Avatars.IDS.length];
+        private final android.view.animation.PathInterpolator profCurve = ScreenTransition.curve();
+        private Paint pCaps, pFieldT, pFieldHint, pGreet, pFootP, pPillT, pDesc;
+
+        private String shownAvatar() {
+            String a = Avatars.current();
+            return a.isEmpty() ? Avatars.DEFAULT : a;
+        }
+
+        private int avatarIndex() {
+            return Math.max(0, java.util.Arrays.asList(Avatars.IDS).indexOf(shownAvatar()));
+        }
+
+        private void enterProfile() {
+            profLevel = 1;
+            Avatars.preload(getContext());
+            invalidate();
+            spoken.focusMoved();
+        }
+
+        private boolean profAnimating() {
+            long now = SystemClock.uptimeMillis();
+            if (!fAv.settled() || !fName.settled()) return true;
+            for (Spring s : gridPop) if (s != null && !s.settled()) return true;
+            return (gridT0 > 0 && now - gridT0 < 420) || (popT0 > 0 && now - popT0 < 520);
+        }
+
+        private float pc(float t) {
+            return profCurve.getInterpolation(Math.max(0f, Math.min(1f, t)));
+        }
+
+        private void closeGrid(boolean choose) {
+            long now = SystemClock.uptimeMillis();
+            if (choose) {
+                Prefs.setAvatar(Avatars.IDS[gridIdx]);
+                popT0 = now + 200;
             }
-            rowR = -1;
+            gridOpen = false;
+            gridT0 = now;
+            profLevel = 1;
+            invalidate();
+            spoken.focusMoved();
+        }
+
+        private boolean profileKey(KeyEvent e, boolean down) {
+            int code = e.getKeyCode(), n = Avatars.IDS.length, cols = 6;
+            boolean ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
+            if (code == KeyEvent.KEYCODE_BACK) {
+                if (down) {
+                    if (e.getRepeatCount() == 0) backDown = true;
+                } else {
+                    if (backDown && !e.isCanceled()) {
+                        if (profLevel == 3) closeGrid(false); else profLevel = 0;
+                        invalidate();
+                        spoken.focusMoved();
+                    }
+                    backDown = false;
+                }
+                return true;
+            }
+            if (ok) {
+                if (down) {
+                    if (e.getRepeatCount() == 0) okDown = true;
+                } else {
+                    if (okDown && !e.isCanceled() && spoken.keyClick()) {
+                        click().open();
+                        if (profLevel == 1) {
+                            gridIdx = avatarIndex();
+                            gridOpen = true;
+                            gridT0 = SystemClock.uptimeMillis();
+                            profLevel = 3;
+                        } else if (profLevel == 2) {
+                            askName();
+                        } else if (profLevel == 3) {
+                            closeGrid(true);
+                        }
+                        invalidate();
+                        spoken.focusMoved();
+                    }
+                    okDown = false;
+                }
+                return true;
+            }
+            if (!down) return code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN || code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT;
+            int before = gridIdx * 10 + profLevel;
+            switch (code) {
+                case KeyEvent.KEYCODE_DPAD_UP:
+                    if (profLevel == 2) profLevel = 1;
+                    else if (profLevel == 3) {
+                        if (gridIdx >= cols) gridIdx -= cols;
+                        else {   // round: the same column in the last row (or the last avatar)
+                            int at = gridIdx + ((n - 1) / cols) * cols;
+                            gridIdx = at < n ? at : n - 1;
+                        }
+                    }
+                    break;
+                case KeyEvent.KEYCODE_DPAD_DOWN:
+                    if (profLevel == 1) profLevel = 2;
+                    else if (profLevel == 3) {
+                        if (gridIdx + cols < n) gridIdx += cols;
+                        else if (gridIdx / cols < (n - 1) / cols) gridIdx = n - 1;
+                        else gridIdx %= cols;
+                    }
+                    break;
+                case KeyEvent.KEYCODE_DPAD_LEFT:
+                    if (profLevel == 3) gridIdx = (gridIdx + n - 1) % n;
+                    else profLevel = 0;
+                    break;
+                case KeyEvent.KEYCODE_DPAD_RIGHT:
+                    if (profLevel == 3) gridIdx = (gridIdx + 1) % n;
+                    break;
+                default:
+                    return false;
+            }
+            if (before != gridIdx * 10 + profLevel) click().move();
+            invalidate();
+            spoken.focusMoved();
+            return true;
+        }
+
+        /** The edit mark of the profile: a white circle with a dark outline and a dark pencil. */
+        private void drawWhitePencil(Canvas c, float bx, float by, float br, float border) {
+            white.setColor(0xFFFFFFFF);
+            c.drawCircle(bx, by, br, white);
+            ringPaint.setStyle(Paint.Style.STROKE);
+            ringPaint.setShader(null);
+            ringPaint.setStrokeWidth(border);
+            ringPaint.setColor(INK);
+            c.drawCircle(bx, by, br - border / 2, ringPaint);
+            float s = br * 1.15f;
+            pencilPath.rewind();
+            pencilPath.moveTo(-0.13f * s, -0.42f * s);
+            pencilPath.lineTo(0.13f * s, -0.42f * s);
+            pencilPath.lineTo(0.13f * s, 0.14f * s);
+            pencilPath.lineTo(0f, 0.44f * s);
+            pencilPath.lineTo(-0.13f * s, 0.14f * s);
+            pencilPath.close();
+            c.save();
+            c.translate(bx, by);
+            c.rotate(45);
+            white.setColor(INK);
+            c.drawPath(pencilPath, white);
+            c.restore();
+            ringPaint.setColor(0xFFFFFFFF);
+            white.setColor(0xFFFFFFFF);
+        }
+
+        /** The current avatar's mark in the list: a Lily circle with a panel-colored outline and a dark check. */
+        private void drawLilyCheck(Canvas c, float bx, float by, float br) {
+            white.setColor(INK);
+            c.drawCircle(bx, by, br + 4.5f * k, white);
+            white.setColor(LILY);
+            c.drawCircle(bx, by, br, white);
+            checkPath.rewind();
+            checkPath.moveTo(bx - 0.45f * br, by + 0.02f * br);
+            checkPath.lineTo(bx - 0.1f * br, by + 0.38f * br);
+            checkPath.lineTo(bx + 0.5f * br, by - 0.34f * br);
+            ringPaint.setStyle(Paint.Style.STROKE);
+            ringPaint.setShader(null);
+            ringPaint.setColor(INK);
+            ringPaint.setStrokeWidth(3.6f * k);
+            ringPaint.setStrokeCap(Paint.Cap.ROUND);
+            ringPaint.setStrokeJoin(Paint.Join.ROUND);
+            c.drawPath(checkPath, ringPaint);
+            ringPaint.setStrokeCap(Paint.Cap.BUTT);
+            ringPaint.setStrokeJoin(Paint.Join.MITER);
+            ringPaint.setColor(0xFFFFFFFF);
+            white.setColor(0xFFFFFFFF);
+        }
+
+        /** The first card: avatar (always with its pencil), "Mi perfil" and "<name> · avatar y nombre". */
+        private void drawProfileCard(Canvas c) {
+            float top = cardTop(-1) * k;
+            rowRect.set(C_L * k, top, (C_L + C_W) * k, top + cardH(-1) * k);
+            boolean sel = screen == MAIN && focus == -1;
+            float f = sel ? Ui.clamp(profilePop.value) : 0, grow = 4 * k * f, r = 33 * k;
+            tmp.set(rowRect.left - grow, rowRect.top - grow, rowRect.right + grow, rowRect.bottom + grow);
+            if (f > 0.01f) {
+                tmp.offset(0, 8 * k * f);
+                shadow.setColor(Ui.alpha(0xFF000000, 0.35f * f));
+                c.drawRoundRect(tmp, r, r, shadow);
+                tmp.offset(0, -8 * k * f);
+            }
+            if (sel) {
+                pPanel.setColor(0xFF26212B);
+                c.drawRoundRect(tmp, r, r, pPanel);
+                blinkFill(c, tmp, r, f);
+                gradientRing(c, tmp, r, 4.5f * k, 1f);
+            } else {
+                pPanel.setColor(0x12FFFFFF);
+                c.drawRoundRect(tmp, r, r, pPanel);
+            }
+            float pad = (28 - 4 * f) * k, ar = 39 * k, cy = tmp.centerY(), ax = tmp.left + pad + ar;
+            Avatars.draw(c, getContext(), shownAvatar(), ax, cy, ar, 1f);
+            drawWhitePencil(c, ax + ar * 0.74f, cy + ar * 0.74f, 15 * k, 3 * k);
+            float tx = ax + ar + 21 * k;
+            String name = Prefs.name();
+            String sub = name.isEmpty() ? Ui.tr("Avatar e nome", "Avatar and name", "Avatar y nombre")
+                    : name + " · " + Ui.tr("avatar e nome", "avatar and name", "avatar y nombre");
+            c.drawText(Ui.tr("Meu perfil", "My profile", "Mi perfil"), tx, cy - 6 * k, f > 0.5f ? pProfTB : pProfT);
+            c.drawText(TextUtils.ellipsize(sub, new TextPaint(pLeftS), tmp.right - 24 * k - tx, TextUtils.TruncateAt.END).toString(), tx, cy + 26 * k, pLeftS);
+        }
+
+        private void profPaints() {
+            if (pFieldT != null && pFieldT.getTextSize() == 33 * k) return;
+            pCaps = Ui.text(Ui.bold, 19.5f * k, 0x99FFFFFF);
+            pCaps.setLetterSpacing(0.08f);
+            pCaps.setTextAlign(Paint.Align.CENTER);
+            pFieldT = Ui.text(Ui.semibold, 33 * k, 0xFFFFFFFF);
+            pFieldHint = Ui.text(Ui.semibold, 33 * k, 0x80FFFFFF);
+            pGreet = Ui.text(Ui.medium, 22.5f * k, 0xB3FFFFFF);
+            pGreet.setTextAlign(Paint.Align.CENTER);
+            pFootP = Ui.text(Ui.semibold, 21 * k, 0x99FFFFFF);
+            pFootP.setTextAlign(Paint.Align.CENTER);
+            pPillT = Ui.text(Ui.semibold, 21 * k, 0xFFFFFFFF);
+            pDesc = Ui.text(Ui.medium, 24 * k, 0xBDFFFFFF);
+        }
+
+        /** The panel of "Mi perfil": the big avatar, the name; and, over it, the list of avatars. */
+        private void drawProfilePanel(Canvas c) {
+            profPaints();
+            long now = SystemClock.uptimeMillis();
+            float cx = (P_L + P_W / 2f) * k, cy = (P_T + 178 + 114) * k, r = 114 * k;
+            float ca = 1, cs = 1, ga = 0, gs = 1;
+            long el = now - gridT0;
+            if (gridOpen) {
+                float a = pc(el / 200f), g = pc(el / 320f);
+                ca = 1 - a;
+                cs = 1 - 0.06f * a;
+                ga = g;
+                gs = 0.55f + 0.45f * g;
+            } else if (gridT0 > 0 && el < 340) {
+                float g = pc(el / 220f), a = pc((el - 80) / 260f);
+                ga = 1 - g;
+                gs = 1 - 0.45f * g;
+                ca = a;
+                cs = 0.94f + 0.06f * a;
+            }
+            if (ca > 0.01f) {
+                c.save();
+                c.scale(cs, cs, cx, cy);
+                int layer = c.saveLayerAlpha((P_L) * k, P_T * k, (P_L + P_W) * k, (P_T + P_H) * k, Math.round(255 * ca));
+                c.drawText(Ui.tr("Meu perfil", "My profile", "Mi perfil"), (P_L + 38) * k, (P_T + 78) * k, pPanelTitle);
+                float s = 1;
+                long pe = now - popT0;
+                if (popT0 > 0 && pe >= 0 && pe < 480) s = pe < 140 ? 1 + 0.12f * pc(pe / 140f) : 1.12f - 0.12f * pc((pe - 140) / 340f);
+                float fa = Ui.clamp(fAv.value);
+                if (fa > 0.01f) avatarRing(c, cx, cy, r + 13.5f * k, 4.5f * k, fa);
+                c.save();
+                c.scale(s, s, cx, cy);
+                Avatars.draw(c, getContext(), shownAvatar(), cx, cy, r, 1f);
+                drawWhitePencil(c, cx + r * 0.74f, cy + r * 0.74f, 33 * k, 4.5f * k);
+                c.restore();
+                float ringBottom = cy + r + 13.5f * k;
+                c.drawText(Ui.tr("SEU NOME", "YOUR NAME", "TU NOMBRE"), cx, ringBottom + 45 * k + 15 * k, pCaps);
+                // the field
+                float fw = 660 * k, fh = 96 * k, fl = cx - fw / 2, ft = ringBottom + 45 * k + 15 * k + 15 * k + 8 * k;
+                float fn = Ui.clamp(fName.value);
+                tmp.set(fl, ft, fl + fw, ft + fh);
+                pPanel.setColor(fn > 0.5f ? 0xFF26212B : 0xFF211D26);
+                c.drawRoundRect(tmp, 27 * k, 27 * k, pPanel);
+                if (fn < 0.99f) {
+                    float half = 2.25f * k;
+                    tmp2.set(tmp.left + half, tmp.top + half, tmp.right - half, tmp.bottom - half);
+                    pPanel.setStyle(Paint.Style.STROKE);
+                    pPanel.setStrokeWidth(4.5f * k);
+                    pPanel.setColor(0x29FFFFFF);
+                    c.drawRoundRect(tmp2, 27 * k - half, 27 * k - half, pPanel);
+                    pPanel.setStyle(Paint.Style.FILL);
+                }
+                if (fn > 0.01f) gradientRing(c, tmp, 27 * k, 4.5f * k, fn);
+                String name = Prefs.name();
+                float tl = tmp.left + 30 * k, room = fw - 60 * k - (fn > 0.5f ? 150 * k : 0);
+                Paint fp = name.isEmpty() ? pFieldHint : pFieldT;
+                String shown = name.isEmpty() ? Ui.tr("Digite seu nome", "Type your name", "Escribe tu nombre") : name;
+                c.drawText(TextUtils.ellipsize(shown, new TextPaint(fp), room, TextUtils.TruncateAt.END).toString(), tl, tmp.centerY() + Ui.halfCap(fp), fp);
+                if (fn > 0.01f) {
+                    pFootP.setTextAlign(Paint.Align.RIGHT);
+                    pFootP.setAlpha(Math.round(0xB3 * fn));
+                    c.drawText(Ui.tr("OK · Editar", "OK · Edit", "OK · Editar"), tmp.right - 30 * k, tmp.centerY() + Ui.halfCap(pFootP), pFootP);
+                    pFootP.setTextAlign(Paint.Align.CENTER);
+                    pFootP.setAlpha(0x99);
+                }
+                String hi = name.isEmpty() ? Ui.tr("Olá!", "Hi!", "¡Hola!") : Ui.tr("Olá, " + name + "!", "Hi, " + name + "!", "¡Hola, " + name + "!");
+                c.drawText(TextUtils.ellipsize(Ui.tr("Assim a tela inicial te cumprimenta: «", "This is how the Home greets you: «", "Así te saluda el Home: «") + hi + "»",
+                        new TextPaint(pGreet), fw + 120 * k, TextUtils.TruncateAt.END).toString(), cx, tmp.bottom + 21 * k + 21 * k, pGreet);
+                String foot = profLevel == 2 ? Ui.tr("OK · Editar nome      Cima · Avatar", "OK · Edit name      Up · Avatar", "OK · Editar nombre      Arriba · Avatar")
+                        : profLevel == 1 ? Ui.tr("OK · Mudar avatar      Baixo · Seu nome", "OK · Change avatar      Down · Your name", "OK · Cambiar avatar      Abajo · Tu nombre")
+                        : Ui.tr("OK · Editar perfil", "OK · Edit profile", "OK · Editar perfil");
+                c.drawText(foot, cx, (P_T + P_H - 39) * k, pFootP);
+                c.restoreToCount(layer);
+                c.restore();
+            }
+            if (ga > 0.01f) {
+                c.save();
+                c.scale(gs, gs, cx, cy);
+                int layer = c.saveLayerAlpha(P_L * k, P_T * k, (P_L + P_W) * k, (P_T + P_H) * k, Math.round(255 * ga));
+                c.drawText(Ui.tr("Escolha seu avatar", "Choose your avatar", "Elige tu avatar"), (P_L + 38) * k, (P_T + 78) * k, pPanelTitle);
+                c.drawText(Ui.tr("Use as setas e aperte OK para escolher.", "Move with the arrows and press OK to choose.", "Muévete con las flechas y pulsa OK para elegir."),
+                        (P_L + 38) * k, (P_T + 78 + 40) * k, pDesc);
+                String cur = Avatars.current();
+                for (int i = 0; i < Avatars.IDS.length; i++) {
+                    float gx = (P_L + 91.5f + (i % 6) * 159) * k + 63 * k, gy = (P_T + 210 + (i / 6) * 165) * k + 63 * k, gr = 63 * k;
+                    Avatars.draw(c, getContext(), Avatars.IDS[i], gx, gy, gr, 1f);
+                    if (Avatars.IDS[i].equals(cur)) {
+                        avatarRingColor(c, gx, gy, gr, 4.5f * k, 0xFFFFFFFF);
+                        drawLilyCheck(c, gx + gr * 0.74f, gy + gr * 0.74f, 22.5f * k);
+                    }
+                    float gp = Ui.clamp(gridPop[i].value);
+                    if (gp > 0.01f) avatarRing(c, gx, gy, gr + 13.5f * k, 4.5f * k, gp);
+                }
+                // the two hints, as pills
+                String p1 = Ui.tr("OK · Escolher", "OK · Choose", "OK · Elegir"), p2 = Ui.tr("Voltar · Cancelar", "Back · Cancel", "Atrás · Cancelar");
+                float w1 = pPillT.measureText(p1) + 60 * k, w2 = pPillT.measureText(p2) + 60 * k, gap = 18 * k, ph = 60 * k;
+                float x0 = cx - (w1 + gap + w2) / 2, py = (P_T + P_H - 33) * k - ph;
+                pPanel.setColor(0x14FFFFFF);
+                tmp.set(x0, py, x0 + w1, py + ph);
+                c.drawRoundRect(tmp, ph / 2, ph / 2, pPanel);
+                c.drawText(p1, tmp.centerX() - pPillT.measureText(p1) / 2, tmp.centerY() + Ui.halfCap(pPillT), pPillT);
+                tmp.set(x0 + w1 + gap, py, x0 + w1 + gap + w2, py + ph);
+                c.drawRoundRect(tmp, ph / 2, ph / 2, pPanel);
+                c.drawText(p2, tmp.centerX() - pPillT.measureText(p2) / 2, tmp.centerY() + Ui.halfCap(pPillT), pPillT);
+                c.restoreToCount(layer);
+                c.restore();
+            }
+        }
+
+        // MARK: - Acerca de Borealis (rolling credits; see the design delivery)
+
+        private float credS = 780, credSpeed = 1, credH = 1900;   // distance rolled (1920 units), speed factor, height of the roll
+        private int credKey;   // -1 up held (rewind), 1 down held (fast)
+        private Paint cLabel, cName, cSupport, cSlogan, cThanks, cVer, cFoot, cPill;
+        private StaticLayout cNotice;
+        private Bitmap tmdbLogo;
+        private boolean tmdbTried;
+
+        // MARK: - Icons and layout editor (Home screen > Icons and layout of the apps)
+
+        private static final int[] ICO_COLS = {6, 8, 10};
+        private List<HomeApps.Item> icoShelf = new ArrayList<>(), icoOthers = new ArrayList<>();
+        private final java.util.HashMap<Integer, List<HomeApps.Item>> icoOrders = new java.util.HashMap<>();
+        private final java.util.HashMap<Integer, java.util.HashMap<HomeApps.Item, Integer>> icoIdx = new java.util.HashMap<>();
+        private final java.util.HashMap<String, String> icoNames = new java.util.HashMap<>();
+        private IconLayout icoFrom, icoTo;
+        private long icoT0;
+        private boolean icoLoaded;
+        private int icoLoad;
+        private Paint icoTitle, icoInstr, icoCap, icoHead, icoBig, icoSub, icoMsg, icoPill, icoMiniName, icoMiniText;
+        private float icoK;
+        private final Paint icoFill = new Paint(Paint.ANTI_ALIAS_FLAG), icoDash = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final float[] icoA = new float[4], icoB = new float[4];
+
+        private static final String[] ICO_NAMES = {"Netflix", "YouTube", "Spotify", "Max", "Disney+", "Prime Video", "Plex", "Apple TV",
+                "Paramount+", "Kodi", "Twitch", "Crunchyroll", "Pluto TV", "Tubi", "Navegador", "Archivos",
+                "Galería", "Juegos", "Play Store", "Calculadora", "Reloj", "Clima", "Radio", "Podcasts",
+                "VLC", "Fotos", "Cámara", "Chat", "Mapas", "Libros", "Notas", "Cast",
+                "Karaoke", "Deportes", "Noticias", "Tienda", "Ayuda", "Música", "Cine", "Series"};
+        private Bitmap icoWall;
+
+        /** The design's sample screen: 7 apps on the shelf, many more in All Apps, colored tiles with no content. */
+        private List<HomeApps.Item> icoAll;
+
+        private void openIcons() {
+            focus = Prefs.iconCols() == 6 ? 0 : Prefs.iconCols() == 10 ? 2 : 1;
+            icoFrom = icoTo = null;
+            if (icoAll == null) {   // 64 sample apps: the grid is always full, whatever the user has installed
+                icoAll = new ArrayList<>();
+                for (int n = 0; n < 64; n++) {
+                    HomeApps.Item it = new HomeApps.Item();
+                    it.kind = HomeApps.APP;
+                    it.label = ICO_NAMES[n % ICO_NAMES.length];
+                    it.inputType = n + 1;   // the seed of its dot color
+                    icoAll.add(it);
+                }
+            }
+            icoShelf = new ArrayList<>();
+            icoOthers = new ArrayList<>(icoAll);
+            icoOrders.clear();
+            icoIdx.clear();
+            icoLoaded = false;   // until the real number of pinned apps is known (a few milliseconds)
+            icoWall = null;
+            final int token = ++icoLoad;
+            final int wp = Prefs.wallpaper();
+            final Context app = getContext().getApplicationContext();
+            new Thread(() -> {
+                int pinned = 0;
+                try {
+                    pinned = Math.min(HomeApps.MAX_SHELF, HomeApps.shelf(app, false).size());
+                } catch (RuntimeException ignored) {
+                }
+                final int real = pinned;
+                handler.post(() -> {
+                    if (token != icoLoad) return;
+                    icoShelf = new ArrayList<>(icoAll.subList(0, real));   // the real number of pinned apps, shown with sample apps
+                    icoOthers = new ArrayList<>(icoAll.subList(real, icoAll.size()));
+                    icoOrders.clear();
+                    icoIdx.clear();
+                    icoLoaded = true;
+                    invalidate();
+                });
+                final Bitmap pic = decodeWallpaper(Prefs.WALLPAPER_FILES[wp], 2, 960);
+                handler.post(() -> {
+                    if (token != icoLoad) return;
+                    icoWall = pic;
+                    invalidate();
+                });
+            }).start();
+            setScreen(ICON_EDIT);
+            invalidate();
+        }
+
+        private int icoPinned(int cols) {
+            return Math.min(cols, icoShelf.size());
+        }
+
+        /** The grid order for a number of columns: the first `cols` shelf apps, then the rest A-Z (the shelf's overflow too). */
+        private List<HomeApps.Item> icoOrder(int cols) {
+            List<HomeApps.Item> o = icoOrders.get(cols);
+            if (o != null) return o;
+            o = new ArrayList<>();
+            for (int i = 0; i < icoShelf.size() && i < cols; i++) o.add(icoShelf.get(i));
+            List<HomeApps.Item> rest = new ArrayList<>(icoOthers);
+            for (int i = cols; i < icoShelf.size(); i++) rest.add(icoShelf.get(i));
+            java.util.Collections.sort(rest, (x, y) -> x.inputType - y.inputType);   // the sample keeps the design's order
+            o.addAll(rest);
+            java.util.HashMap<HomeApps.Item, Integer> idx = new java.util.HashMap<>();
+            for (int i = 0; i < o.size(); i++) idx.put(o.get(i), i);
+            icoOrders.put(cols, o);
+            icoIdx.put(cols, idx);
+            return o;
+        }
+
+        private int icoPreviewCols() { return focus >= 0 && focus < 3 ? ICO_COLS[focus] : Prefs.iconCols(); }
+        private int icoPreviewShape() { return focus >= 3 ? focus - 3 : Prefs.iconShape(); }
+
+        private void iconsApply() {
+            if (focus < 0 || focus > 5) return;
+            if (focus < 3) Prefs.setIconCols(ICO_COLS[focus]); else Prefs.setIconShape(focus - 3);
+            invalidate();
+            spoken.focusMoved();
+        }
+
+        private boolean iconsKey(KeyEvent e, boolean down) {
+            switch (e.getKeyCode()) {
+                case KeyEvent.KEYCODE_DPAD_LEFT:
+                    if (down) focus = (focus + 5) % 6;
+                    break;
+                case KeyEvent.KEYCODE_DPAD_RIGHT:
+                    if (down) focus = (focus + 1) % 6;
+                    break;
+                case KeyEvent.KEYCODE_DPAD_UP:
+                case KeyEvent.KEYCODE_DPAD_DOWN:
+                    return true;
+                case KeyEvent.KEYCODE_DPAD_CENTER:
+                case KeyEvent.KEYCODE_ENTER:
+                case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                    if (down) {
+                        if (e.getRepeatCount() == 0) okDown = true;
+                    } else {
+                        if (okDown && !e.isCanceled() && spoken.keyClick()) activate();
+                        okDown = false;
+                    }
+                    return true;
+                default:
+                    return false;
+            }
+            invalidate();
+            spoken.focusMoved();
+            return true;
+        }
+
+        /** Card i (0-2 distribution, 3-5 shape) in 1920-wide units. */
+        private void iconsCard(int i, RectF out) {
+            float left = i < 3 ? 96 : 1032, x = left + (i % 3) * (252 + 18);
+            out.set(x * k, 735 * k, (x + 252) * k, (735 + 174) * k);
+        }
+
+        private String iconsCardText(int i) {
+            String s;
+            if (i < 3) {
+                int c = ICO_COLS[i], r = c == 6 ? 4 : c == 10 ? 6 : 5;
+                s = Ui.tr("Distribuição ", "Layout ", "Distribución ") + c + Ui.tr(" por ", " by ", " por ") + r + ", "
+                        + (i == 0 ? Ui.tr("ampla", "wide", "amplia") : i == 1 ? Ui.tr("equilibrada", "balanced", "equilibrada") : Ui.tr("compacta", "compact", "compacta"));
+                if (ICO_COLS[i] == Prefs.iconCols()) s += ", " + Ui.tr("aplicada", "applied", "aplicada");
+            } else {
+                s = Ui.tr("Forma ", "Shape ", "Forma ") + (i == 3 ? Ui.tr("retangular", "rectangular", "rectangular") : i == 4 ? Ui.tr("quadrada", "square", "cuadrada") : "circular");
+                if (i - 3 == Prefs.iconShape()) s += ", " + Ui.tr("aplicada", "applied", "aplicada");
+            }
+            return s;
+        }
+
+        private void icoPaints() {
+            if (icoK == k && icoTitle != null) return;
+            icoK = k;
+            icoTitle = Ui.text(Logo.wordmark(getContext()), 51 * k, 0xFFFFFFFF);
+            icoInstr = Ui.text(Ui.medium, 22.5f * k, Ui.alpha(0xFFFFFFFF, 0.7f));
+            icoCap = Ui.text(Ui.bold, 18 * k, Ui.alpha(0xFFFFFFFF, 0.6f));
+            icoCap.setLetterSpacing(0.1f);
+            icoHead = Ui.text(Ui.bold, 19.5f * k, LILY);
+            icoHead.setLetterSpacing(0.12f);
+            icoBig = Ui.text(Ui.bold, 27 * k, 0xFFFFFFFF);
+            icoBig.setTextAlign(Paint.Align.CENTER);
+            icoSub = Ui.text(Ui.medium, 19.5f * k, Ui.alpha(0xFFFFFFFF, 0.6f));
+            icoSub.setTextAlign(Paint.Align.CENTER);
+            icoMsg = Ui.text(Ui.semibold, 22.5f * k, 0xFFFFFFFF);
+            icoMsg.setTextAlign(Paint.Align.CENTER);
+            icoPill = Ui.text(Ui.semibold, 21 * k, 0xFFFFFFFF);
+            icoMiniName = Ui.text(Ui.medium, 19.5f, Ui.alpha(0xFFFFFFFF, 0.78f));   // drawn inside the scaled miniature
+            icoMiniName.setTextAlign(Paint.Align.CENTER);
+            icoMiniText = Ui.text(Ui.medium, 22, 0xFFFFFFFF);
+            icoMiniText.setTextAlign(Paint.Align.CENTER);
+        }
+
+        private boolean icoRect(IconLayout g, int idx, int pinned, boolean home, float[] out) {
+            if (idx < 0) return false;
+            if (home) {
+                if (idx >= pinned) return false;
+                out[0] = g.tileX(idx);
+                out[1] = g.homeTileY();
+                return true;
+            }
+            int row, col;
+            if (idx < pinned) {
+                row = idx / g.cols;
+                col = idx % g.cols;
+            } else {
+                row = (pinned + g.cols - 1) / g.cols + (idx - pinned) / g.cols;
+                col = (idx - pinned) % g.cols;
+            }
+            if (row >= g.rows) return false;
+            out[0] = g.tileX(col);
+            out[1] = g.gridTileY(row);
+            return true;
+        }
+
+        /** A sample app as the design draws it: a soft white tile with a colored dot in the middle (a different color per app). */
+        private void icoTile(Canvas c, HomeApps.Item it, int shape, float x, float y, float tw, float th, float rad, float alpha) {
+            tmp2.set(x, y, x + tw, y + th);
+            icoFill.setShader(null);
+            icoFill.setColor(Ui.alpha(0xFFFFFFFF, 0.13f * alpha));
+            c.drawRoundRect(tmp2, rad, rad, icoFill);
+            int[] tint = {LILY, PEACH, MELON};
+            icoFill.setColor(Ui.alpha(tint[new java.util.Random(it.inputType * 17L).nextInt(3)], 0.9f * alpha));
+            c.drawCircle(tmp2.centerX(), tmp2.centerY(), Math.min(tw, th) * 0.17f, icoFill);
+        }
+
+        /** The live miniature: the real Home (shelf) or All Apps at 0.4125, with the layout and the shape in preview. */
+        private void drawIconsMini(Canvas c, boolean home, float left, float top, float e) {
+            IconLayout A = icoFrom, B = icoTo;
+            int shapeNow = e < 0.5f ? A.shape : B.shape;
+            c.save();
+            tmp.set(left * k, top * k, (left + 792) * k, (top + 445.5f) * k);
+            android.graphics.Path clip = new android.graphics.Path();
+            clip.addRoundRect(tmp, 24 * k, 24 * k, android.graphics.Path.Direction.CW);
+            c.clipPath(clip);
+            c.translate(tmp.left, tmp.top);
+            c.scale(0.4125f * k, 0.4125f * k);
+            c.drawColor(Brand.INK);
+            Bitmap wall = home ? (icoWall != null ? icoWall : bgSoft) : bgSoft;
+            if (wall != null) {
+                waveDst.set(0, 0, 1920, 1080);
+                bgPaint.setAlpha(255);
+                c.drawBitmap(wall, null, waveDst, bgPaint);
+            }
+            icoFill.setShader(null);
+            if (home) {   // the wallpaper as it is, a little darker toward the bottom where the shelf sits
+                icoFill.setShader(new LinearGradient(0, 0, 0, 1080, Ui.alpha(Brand.INK, 0.10f), Ui.alpha(Brand.INK, 0.62f), Shader.TileMode.CLAMP));
+                c.drawRect(0, 0, 1920, 1080, icoFill);
+                icoFill.setShader(null);
+            } else {
+                icoFill.setColor(Ui.alpha(Brand.INK, 0.58f));
+                c.drawRect(0, 0, 1920, 1080, icoFill);
+            }
+            if (home) {   // the design's sample Home (IconosVista), x1.5: header, clock and three "continue watching" cards
+                icoFill.setColor(0xFFFFFFFF);
+                c.drawCircle(141, 105, 45, icoFill);
+                icoFill.setColor(0xFF3B2F66);
+                c.drawCircle(141, 105, 40.5f, icoFill);
+                icoMiniText.setTextAlign(Paint.Align.LEFT);
+                icoMiniText.setTypeface(Ui.medium);
+                icoMiniText.setTextSize(27);
+                icoMiniText.setColor(Ui.alpha(0xFFFFFFFF, 0.74f));
+                c.drawText(Ui.tr("Olá, Jero", "Hi, Jero", "Hola, Jero"), 216, 90, icoMiniText);
+                icoMiniText.setTypeface(Logo.wordmark(getContext()));
+                icoMiniText.setTextSize(63);
+                icoMiniText.setColor(0xFFFFFFFF);
+                c.drawText(Ui.tr("O que quer ver hoje?", "What do you want to watch?", "¿Qué quieres ver hoy?"), 216, 140, icoMiniText);
+                icoFill.setColor(Ui.alpha(0xFFFFFFFF, 0.08f));
+                c.drawRoundRect(1824 - 292, 69, 1824, 141, 36, 36, icoFill);
+                icoMiniText.setTypeface(Ui.bold);
+                icoMiniText.setTextSize(33);
+                c.drawText("15:32", 1824 - 292 + 33, 114, icoMiniText);
+                icoMiniText.setTypeface(Ui.medium);
+                icoMiniText.setTextSize(24);
+                icoMiniText.setColor(Ui.alpha(0xFFFFFFFF, 0.74f));
+                c.drawText("Dom 8 Nov", 1824 - 292 + 33 + 101, 113, icoMiniText);
+                icoMiniText.setColor(0xFFFFFFFF);
+                float[][] cd = {{96, 960}, {96 + 960 + 36, 336}, {96 + 960 + 36 + 336 + 36, 336}};
+                int[][] c1 = {{0xFF4A3A86, 0xFFB79CFE, 0xFFE99794}, {0xFF2C2A31, 0xFF5A4A78, 0xFF5A4A78}, {0xFF5A3A46, 0xFFE99794, 0xFFE99794}};
+                for (int n = 0; n < 3; n++) {
+                    float cx0 = cd[n][0], cw0 = cd[n][1];
+                    float[] ln = n == 0 ? new float[] {135, 93, 825, 783} : new float[] {80.8f, 198.4f, 255.2f, 677.6f};   // CSS 135deg / 160deg
+                    float ox = n == 0 ? cx0 : cx0 + (n == 0 ? 0 : 0);
+                    icoFill.setShader(new LinearGradient(ox + ln[0] - (n == 0 ? 0 : 0), ln[1], ox + ln[2], ln[3],
+                            c1[n], n == 0 ? new float[] {0, 0.55f, 1} : new float[] {0, 0.5f, 1}, Shader.TileMode.CLAMP));
+                    c.drawRoundRect(cx0, 228, cx0 + cw0, 648, 30, 30, icoFill);
+                    icoFill.setShader(new LinearGradient(0, 648, 0, 648 - 225, Ui.alpha(Brand.INK, 0.92f), 0x00171519, Shader.TileMode.CLAMP));
+                    int sv = c.save();
+                    clip.rewind();
+                    clip.addRoundRect(cx0, 228, cx0 + cw0, 648, 30, 30, android.graphics.Path.Direction.CW);
+                    c.clipPath(clip);
+                    c.drawRect(cx0, 648 - 225, cx0 + cw0, 648, icoFill);
+                    c.restoreToCount(sv);
+                    icoFill.setShader(null);
+                }
+            } else {   // All Apps (no search field): title and hint as in the design, the chevron at the bottom
+                icoMiniText.setTextAlign(Paint.Align.LEFT);
+                icoMiniText.setTypeface(Logo.wordmark(getContext()));
+                icoMiniText.setTextSize(54);
+                icoMiniText.setColor(0xFFFFFFFF);
+                c.drawText(Ui.tr("Todos os apps", "All apps", "Todas las apps"), 96, 107, icoMiniText);
+                icoMiniText.setTypeface(Ui.medium);
+                icoMiniText.setTextSize(21);
+                icoMiniText.setColor(Ui.alpha(0xFFFFFFFF, 0.62f));
+                c.drawText(Ui.tr("Segure OK sobre um app para movê-lo, fixá-lo ou tirá-lo", "Hold OK on an app to move, pin or remove it", "Mantén OK sobre una app para moverla, fijarla o quitarla"), 96, 145, icoMiniText);
+                icoMiniText.setColor(0xFFFFFFFF);
+                icoDash.setStyle(Paint.Style.STROKE);
+                icoDash.setStrokeWidth(2.6f);
+                icoDash.setStrokeCap(Paint.Cap.ROUND);
+                icoDash.setColor(Ui.alpha(0xFFFFFFFF, 0.5f));
+                c.drawLine(948, 1036, 960, 1050, icoDash);
+                c.drawLine(972, 1036, 960, 1050, icoDash);
+                icoDash.setStyle(Paint.Style.FILL);
+            }
+            if (!icoLoaded) {
+                c.restore();
+                return;
+            }
+            List<HomeApps.Item> oB = icoOrder(B.cols);
+            icoOrder(A.cols);
+            int pA = icoPinned(A.cols), pB = icoPinned(B.cols);
+            java.util.HashMap<HomeApps.Item, Integer> ixA = icoIdx.get(A.cols);
+            icoMiniName.setTextSize(B.cols == 10 ? 18 : 19.5f);
+            for (int i = 0; i < oB.size(); i++) {
+                HomeApps.Item it = oB.get(i);
+                Integer ia = ixA.get(it);
+                boolean inA = icoRect(A, ia == null ? -1 : ia, pA, home, icoA), inB = icoRect(B, i, pB, home, icoB);
+                if (!inA && !inB) continue;
+                float x, y, tw, th, rad, alpha = 1;
+                if (inA && inB) {
+                    x = icoA[0] + (icoB[0] - icoA[0]) * e;
+                    y = icoA[1] + (icoB[1] - icoA[1]) * e;
+                    tw = A.tileW + (B.tileW - A.tileW) * e;
+                    th = A.tileH + (B.tileH - A.tileH) * e;
+                    rad = A.tileR + (B.tileR - A.tileR) * e;
+                } else if (inB) {
+                    x = icoB[0]; y = icoB[1]; tw = B.tileW; th = B.tileH; rad = B.tileR; alpha = e;
+                } else {
+                    x = icoA[0]; y = icoA[1]; tw = A.tileW; th = A.tileH; rad = A.tileR; alpha = 1 - e;
+                }
+                if (home && i == 2 && inB) {   // the design focuses the third app: gradient ring (7 px of air) and its name below
+                    float air = 10.5f, rw = 4.5f;
+                    icoFill.setShader(new LinearGradient(x - air, 0, x + tw + air, 0, new int[] {LILY, PEACH, MELON}, new float[] {0, 0.55f, 1}, Shader.TileMode.CLAMP));
+                    icoFill.setAlpha(Math.round(255 * alpha));
+                    c.drawRoundRect(x - air, y - air, x + tw + air, y + th + air, rad + air, rad + air, icoFill);
+                    icoFill.setShader(null);
+                    icoFill.setColor(0xFF1B1720);
+                    c.drawRoundRect(x - air + rw, y - air + rw, x + tw + air - rw, y + th + air - rw, rad + air - rw, rad + air - rw, icoFill);
+                }
+                icoTile(c, it, shapeNow, x, y, tw, th, rad, alpha);
+                if (home && i == 2 && inB) {
+                    icoMiniText.setTextAlign(Paint.Align.CENTER);
+                    icoMiniText.setTypeface(Ui.semibold);
+                    icoMiniText.setTextSize(22.5f);
+                    icoMiniText.setColor(0xFFFFFFFF);
+                    c.drawText(it.label, x + tw / 2, y + th + 18 + 17, icoMiniText);
+                }
+                if (!home && it.label != null) {   // the name under each app: 13 px (12 at 10 columns), 500, white 78%
+                    float cw = inB ? B.cellW : A.cellW;
+                    String key = it.label + "|" + (int) cw + "|" + B.cols;
+                    String fit = icoNames.get(key);
+                    if (fit == null) {
+                        int n = icoMiniName.breakText(it.label, true, cw, null);
+                        fit = n >= it.label.length() ? it.label : it.label.substring(0, Math.max(1, n - 1)) + "…";
+                        icoNames.put(key, fit);
+                    }
+                    icoMiniName.setAlpha(Math.round(255 * 0.78f * alpha));
+                    c.drawText(fit, x + tw / 2, y + th + 9 + (B.cols == 10 ? 14 : 15), icoMiniName);
+                }
+            }
+            if (home) {   // free places: dotted silhouettes (the first one carries the "+")
+                for (int pass = 0; pass < 2; pass++) {
+                    IconLayout g = pass == 0 ? A : B;
+                    float a = pass == 0 ? 1 - e : e;
+                    if (a < 0.02f) continue;
+                    int p = pass == 0 ? pA : pB;
+                    icoDash.setStyle(Paint.Style.STROKE);
+                    icoDash.setStrokeWidth(5.5f);
+                    icoDash.setStrokeCap(Paint.Cap.ROUND);
+                    icoDash.setPathEffect(new android.graphics.DashPathEffect(new float[] {12, 14}, 0));
+                    icoDash.setColor(0xFFFFFFFF);
+                    icoDash.setAlpha(Math.round(255 * 0.13f * a));
+                    for (int col = p; col < g.cols; col++) {
+                        float x = g.tileX(col), y = g.homeTileY();
+                        tmp2.set(x, y, x + g.tileW, y + g.tileH);
+                        if (col == p) icoDash.setAlpha(Math.round(255 * 0.34f * a));   // the "+" place: a stronger dashed border
+                        c.drawRoundRect(tmp2, g.tileR, g.tileR, icoDash);
+                        if (col == p) {
+                            icoDash.setPathEffect(null);
+                            icoDash.setAlpha(Math.round(255 * 0.75f * a));
+                            float cx = tmp2.centerX(), cy = tmp2.centerY(), arm = Math.min(g.tileW, g.tileH) * 0.2f;
+                            c.drawLine(cx - arm, cy, cx + arm, cy, icoDash);
+                            c.drawLine(cx, cy - arm, cx, cy + arm, icoDash);
+                            icoDash.setPathEffect(new android.graphics.DashPathEffect(new float[] {12, 14}, 0));
+                            icoDash.setAlpha(Math.round(255 * 0.13f * a));
+                        }
+                    }
+                    icoDash.setPathEffect(null);
+                    icoDash.setStyle(Paint.Style.FILL);
+                }
+                icoFill.setColor(Ui.alpha(0xFFFFFFFF, 0.8f));   // "see all apps": a chevron
+                float hy = 873 + B.tileH / 2 + 46;
+                icoDash.setStyle(Paint.Style.STROKE);
+                icoDash.setStrokeWidth(5);
+                icoDash.setStrokeCap(Paint.Cap.ROUND);
+                icoDash.setColor(Ui.alpha(0xFFFFFFFF, 0.8f));
+                c.drawLine(944, hy - 5, 960, hy + 7, icoDash);
+                c.drawLine(976, hy - 5, 960, hy + 7, icoDash);
+                icoDash.setStyle(Paint.Style.FILL);
+            } else if (pB > 0 && pB < oB.size()) {   // the thin line under the shelf row
+                float ly = B.gridTileY(1) - (B.pitch - B.tileH) / 2f;
+                icoFill.setColor(Ui.alpha(0xFFFFFFFF, 0.16f));
+                c.drawRect(96, ly - 1, 1824, ly + 1, icoFill);
+            }
+            c.restore();
+        }
+
+        private void drawIconCard(Canvas c, int i) {
+            iconsCard(i, tmp);
+            float r = 30 * k;
+            boolean applied = i < 3 ? ICO_COLS[i] == Prefs.iconCols() : i - 3 == Prefs.iconShape();
+            icoFill.setShader(null);
+            icoFill.setColor(applied ? 0xFF26212B : Ui.alpha(0xFFFFFFFF, 0.07f));
+            c.drawRoundRect(tmp, r, r, icoFill);
+            float cx = tmp.centerX(), top = tmp.top;
+            if (i < 3) {
+                int cc = ICO_COLS[i], rr = cc == 6 ? 4 : cc == 10 ? 6 : 5;
+                float gw = 144 * k, gh = 81 * k, gap = 3 * k, x0 = cx - gw / 2, y0 = top + 24 * k;
+                float cw = (gw - (cc - 1) * gap) / cc, ch = (gh - (rr - 1) * gap) / rr;
+                icoFill.setColor(applied || focus == i ? LILY : Ui.alpha(0xFFFFFFFF, 0.32f));
+                for (int a = 0; a < rr; a++)
+                    for (int b = 0; b < cc; b++)
+                        c.drawRoundRect(x0 + b * (cw + gap), y0 + a * (ch + gap), x0 + b * (cw + gap) + cw, y0 + a * (ch + gap) + ch, 2 * k, 2 * k, icoFill);
+                c.drawText(cc + " × " + rr, cx, top + 138 * k, icoBig);
+                c.drawText(i == 0 ? Ui.tr("Ampla", "Wide", "Amplia") : i == 1 ? Ui.tr("Equilibrada", "Balanced", "Equilibrada") : Ui.tr("Compacta", "Compact", "Compacta"), cx, top + 160 * k, icoSub);
+            } else {
+                int sh = i - 3;
+                float sw = sh == 0 ? 105 * k : 81 * k, shh = sh == 0 ? 60 * k : 81 * k, cy = top + 64 * k;
+                float sr = sh == 0 ? 12 * k : sh == 1 ? 19.5f * k : 40.5f * k;
+                icoFill.setColor(Ui.alpha(0xFFFFFFFF, 0.12f));
+                tmp2.set(cx - sw / 2, cy - shh / 2, cx + sw / 2, cy + shh / 2);
+                c.drawRoundRect(tmp2, sr, sr, icoFill);
+                Paint letter = Ui.text(Logo.wordmark(getContext()), 33 * k, LILY);
+                letter.setTextAlign(Paint.Align.CENTER);
+                c.drawText("A", cx, cy + Ui.halfCap(letter), letter);
+                c.drawText(sh == 0 ? Ui.tr("Retangular", "Rectangular", "Rectangular") : sh == 1 ? Ui.tr("Quadrada", "Square", "Cuadrada") : "Circular", cx, top + 150 * k, icoBig);
+            }
+            if (applied) drawLilyCheck(c, tmp.right - 30 * k, tmp.top + 30 * k, 22.5f * k);
+            if (focus == i) {
+                float air = 4 * k, ring = 3 * k, half = ring / 2;
+                tmp2.set(tmp.left - air - half, tmp.top - air - half, tmp.right + air + half, tmp.bottom + air + half);
+                ringPaint.setStyle(Paint.Style.STROKE);
+                ringPaint.setStrokeWidth(ring);
+                ringPaint.setShader(new LinearGradient(tmp2.left, tmp2.top, tmp2.right, tmp2.bottom, new int[] {LILY, PEACH, MELON}, null, Shader.TileMode.CLAMP));
+                ringPaint.setAlpha(255);
+                c.drawRoundRect(tmp2, r + air, r + air, ringPaint);
+                ringPaint.setShader(null);
+            }
+        }
+
+        private void drawIconsPill(Canvas c, float x, float cy, String key, String label) {
+            icoPill.setTextAlign(Paint.Align.LEFT);
+            float kw = icoPill.measureText(key), lw = icoPill.measureText(" · " + label), pw = kw + lw + 48 * k, ph = 57 * k;
+            tmp2.set(x, cy - ph / 2, x + pw, cy + ph / 2);
+            icoFill.setShader(null);
+            icoFill.setColor(Ui.alpha(0xFFFFFFFF, 0.08f));
+            c.drawRoundRect(tmp2, ph / 2, ph / 2, icoFill);
+            icoPill.setColor(0xFFFFFFFF);
+            c.drawText(key, x + 24 * k, cy + Ui.halfCap(icoPill), icoPill);
+            icoPill.setColor(Ui.alpha(0xFFFFFFFF, 0.7f));
+            c.drawText(" · " + label, x + 24 * k + kw, cy + Ui.halfCap(icoPill), icoPill);
+            icoPill.setColor(0xFFFFFFFF);
+        }
+
+        private float icoPillWidth(String key, String label) {
+            return icoPill.measureText(key) + icoPill.measureText(" · " + label) + 48 * k;
+        }
+
+        private void drawIcons(Canvas c) {
+            drawBackground(c);
+            c.drawColor(Ui.alpha(Brand.INK, 0.80f));
+            icoPaints();
+            int pc = icoPreviewCols(), ps = icoPreviewShape();
+            long now = SystemClock.uptimeMillis();
+            if (icoTo == null) {
+                icoTo = icoFrom = IconLayout.of(pc, ps);
+                icoT0 = now - 1000;
+            } else if (icoTo.cols != pc || icoTo.shape != ps) {
+                icoFrom = icoTo;
+                icoTo = IconLayout.of(pc, ps);
+                icoT0 = now;
+            }
+            float e = ScreenTransition.curve().getInterpolation(Ui.clamp((now - icoT0) / 260f));
+            c.drawText(Ui.tr("Ícones e distribuição dos apps", "Icons and layout of the apps", "Iconos y distribución de las apps"), 96 * k, 51 * k + 40 * k, icoTitle);
+            c.drawText(Ui.tr("Escolha uma opção para ver ao vivo e aperte \"OK\" para aplicá-la.",
+                    "Pick an option to see it live and press \"OK\" to apply it.",
+                    "Selecciona una opción para verla en vivo y presiona \"OK\" para aplicarla."), 96 * k, 123 * k + 8 * k, icoInstr);
+            drawIconsMini(c, true, 96, 177, e);
+            drawIconsMini(c, false, 1032, 177, e);
+            int shelfN = icoShelf.size(), cupo = icoTo.cols;
+            // captions
+            float cy = 650 * k;
+            String left1 = Ui.tr("HOME", "HOME", "HOME");
+            c.drawText(left1, 96 * k, cy, icoCap);
+            String shelfTxt = Ui.tr("FIXADOS", "PINNED", "FIJADAS") + " · " + Math.min(shelfN, cupo) + Ui.tr(" DE ", " OF ", " DE ") + cupo;
+            icoCap.setColor(shelfN > cupo && icoLoaded ? MELON : Ui.alpha(0xFFFFFFFF, 0.6f));
+            icoCap.setTextAlign(Paint.Align.RIGHT);
+            c.drawText(shelfTxt, 888 * k, cy, icoCap);
+            icoCap.setColor(Ui.alpha(0xFFFFFFFF, 0.6f));
+            icoCap.setTextAlign(Paint.Align.LEFT);
+            c.drawText(Ui.tr("TODOS OS APPS", "ALL APPS", "TODAS LAS APPS"), 1032 * k, cy, icoCap);
+            icoCap.setTextAlign(Paint.Align.RIGHT);
+            c.drawText(icoTo.cols + Ui.tr(" COLUNAS · ", " COLUMNS · ", " COLUMNAS · ") + icoTo.rows + Ui.tr(" LINHAS À VISTA", " ROWS IN VIEW", " FILAS A LA VISTA"), 1824 * k, cy, icoCap);
+            icoCap.setTextAlign(Paint.Align.LEFT);
+            // group headers
+            icoHead.setColor(LILY);
+            c.drawText(Ui.tr("DISTRIBUIÇÃO", "LAYOUT", "DISTRIBUCIÓN"), 96 * k, 712 * k, icoHead);
+            icoHead.setColor(PEACH);
+            c.drawText(Ui.tr("FORMA", "SHAPE", "FORMA"), 1032 * k, 712 * k, icoHead);
+            for (int i = 0; i < 6; i++) drawIconCard(c, i);
+            // message
+            if (icoLoaded) {
+                String cr = icoTo.cols + " × " + icoTo.rows;
+                String msg = null;
+                int color = 0;
+                if (shelfN > cupo) {
+                    int d = shelfN - cupo;
+                    msg = Ui.tr("Com " + cr + " cabem " + cupo + " apps fixados. " + (d == 1 ? "O último deixa de ficar fixado, mas continua em Todos os apps." : "Os " + d + " últimos deixam de ficar fixados, mas continuam em Todos os apps."),
+                            "With " + cr + " you can pin " + cupo + " apps. " + (d == 1 ? "The last one is unpinned but stays in All apps." : "The last " + d + " are unpinned but stay in All apps."),
+                            "Con " + cr + " caben " + cupo + " apps fijadas. " + (d == 1 ? "La última deja de estar fijada, pero sigue en Todas las apps." : "Las " + d + " últimas dejan de estar fijadas, pero siguen en Todas las apps."));
+                    color = MELON;
+                } else if (cupo > shelfN) {
+                    int d = cupo - shelfN;
+                    msg = Ui.tr("Com " + cr + " cabem " + cupo + " apps fixados: com o \"+\" você pode somar mais " + d + ".",
+                            "With " + cr + " you can pin " + cupo + " apps: use the \"+\" to add " + d + " more.",
+                            "Con " + cr + " caben " + cupo + " apps fijadas: con el \"+\" puedes sumar " + d + " más.");
+                    color = LILY;
+                }
+                if (msg != null) {
+                    icoMsg.setColor(color);
+                    c.drawText(msg, w / 2f, 936 * k + Ui.halfCap(icoMsg), icoMsg);
+                }
+            }
+            // footer pills
+            String l1 = Ui.tr("Aplicar", "Apply", "Aplicar"), l2 = Ui.tr("Voltar", "Back", "Volver");
+            float w1 = icoPillWidth("OK", l1), w2 = icoPillWidth(Ui.tr("Voltar", "Back", "Atrás"), l2), gap = 24 * k;
+            float x0 = w / 2f - (w1 + w2 + gap) / 2f;
+            drawIconsPill(c, x0, 1020 * k, "OK", l1);
+            drawIconsPill(c, x0 + w1 + gap, 1020 * k, Ui.tr("Voltar", "Back", "Atrás"), l2);
+        }
+
+        private void openCredits() {
+            credS = 780;   // the first pass starts with the logo in view
+            credSpeed = 1;
+            credKey = 0;
+            setScreen(CREDITS);
+            focus = 0;
+            invalidate();
+        }
+
+        private boolean creditsKey(KeyEvent e, boolean down) {
+            switch (e.getKeyCode()) {
+                case KeyEvent.KEYCODE_DPAD_DOWN:
+                    credKey = down ? 1 : (credKey == 1 ? 0 : credKey);
+                    break;
+                case KeyEvent.KEYCODE_DPAD_UP:
+                    credKey = down ? -1 : (credKey == -1 ? 0 : credKey);
+                    break;
+                default:
+                    break;
+            }
+            invalidate();
+            return true;
+        }
+
+        private String creditsSpoken() {
+            return Ui.tr("Sobre o Borealis. ", "About Borealis. ", "Acerca de Borealis. ")
+                    + Ui.tr("Sua TV, sob uma nova luz. Desenhado e desenvolvido por Alogus Tov. Powered by Free My TV. Dados de filmes e séries do TMDB. Este produto usa a API do TMDB, mas não é endossado nem certificado pelo TMDB. Versão ",
+                    "Your TV, under a new light. Designed and developed by Alogus Tov. Powered by Free My TV. Movie and TV data from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB. Version ",
+                    "Tu TV, bajo una nueva luz. Diseñado y desarrollado por Alogus Tov. Powered by Free My TV. Datos de películas y series de TMDB. Este producto usa la API de TMDB, pero no está avalado ni certificado por TMDB. Versión ")
+                    + versionName(getContext()) + ".";
+        }
+
+        private void credPaints() {
+            if (cLabel != null) return;
+            cLabel = Ui.text(Ui.bold, 19.5f, 0xFFFFFFFF);
+            cLabel.setLetterSpacing(0.12f);
+            cLabel.setTextAlign(Paint.Align.CENTER);
+            cName = Ui.text(Logo.wordmark(getContext()), 60, 0xFFFFFFFF);
+            cName.setTextAlign(Paint.Align.CENTER);
+            cSupport = Ui.text(Ui.medium, 22.5f, 0xB3FFFFFF);
+            cSupport.setTextAlign(Paint.Align.CENTER);
+            cSlogan = Ui.text(Logo.wordmark(getContext()), 45, 0xFFFFFFFF);
+            cSlogan.setTextAlign(Paint.Align.CENTER);
+            cThanks = Ui.text(Logo.wordmark(getContext()), 51, 0xFFFFFFFF);
+            cThanks.setTextAlign(Paint.Align.CENTER);
+            cVer = Ui.text(Ui.semibold, 22.5f, 0xB3FFFFFF);
+            cVer.setTextAlign(Paint.Align.CENTER);
+            cFoot = Ui.text(Ui.semibold, 21, 0x99FFFFFF);
+            cFoot.setTextAlign(Paint.Align.CENTER);
+            cPill = Ui.text(Ui.semibold, 22.5f, 0xFFFFFFFF);
+            String note = Ui.tr("Este produto usa a API do TMDB, mas não é endossado nem certificado pelo TMDB.",
+                    "This product uses the TMDB API but is not endorsed or certified by TMDB.",
+                    "Este producto usa la API de TMDB, pero no está avalado ni certificado por TMDB.");
+            TextPaint tp = new TextPaint(cSupport);
+            tp.setTextAlign(Paint.Align.LEFT);
+            cNotice = StaticLayout.Builder.obtain(note, 0, note.length(), tp, 630).setAlignment(android.text.Layout.Alignment.ALIGN_CENTER).build();
+        }
+
+        /** The official TMDB logo (assets/tmdb.png, as TMDB provides it), or null when the file is not there yet. */
+        private Bitmap tmdb() {
+            if (!tmdbTried) {
+                tmdbTried = true;
+                try (java.io.InputStream in = getContext().getAssets().open("tmdb.png")) {
+                    tmdbLogo = android.graphics.BitmapFactory.decodeStream(in);
+                } catch (Exception | OutOfMemoryError e) {
+                    tmdbLogo = null;
+                }
+            }
+            return tmdbLogo;
+        }
+
+        private float credLabel(Canvas c, String text, int color, float y) {
+            cLabel.setColor(color);
+            c.drawText(text, 960, y + 19.5f, cLabel);
+            return y + 19.5f;
+        }
+
+        /** Draws the roll with its top at y = 0 (1920 units, the canvas already scaled) and returns its height. */
+        private float credContent(Canvas c, float seconds) {
+            float cx = 960, y = 0, gap = 129;
+            // 1. the "Borealis | TV" signature (symbol 117 tall), its Lily halo breathing behind it, and the slogan
+            float breath = 0.75f + 0.25f * (0.5f + 0.5f * (float) Math.sin(seconds * 2 * Math.PI / 4));
+            float hy = y + 58.5f;
+            c.save();
+            c.translate(cx, hy);
+            c.scale(1f, 390f / 840f);   // the design's halo: 560 x 260 (840 x 390 here), Lily 26 % fading to nothing at its edge
+            pPanel.setShader(new android.graphics.RadialGradient(0, 0, 420, new int[] {Ui.alpha(LILY, 0.26f * breath), 0x00B79CFE}, null, Shader.TileMode.CLAMP));
+            c.drawCircle(0, 0, 420, pPanel);
+            pPanel.setShader(null);
+            c.restore();
+            Logo.drawSignature(c, getContext(), cx, hy, 117, 2.25f, 1f);
+            y += 117 + 39;
+            c.drawText(Ui.tr("Sua TV, sob uma nova luz.", "Your TV, under a new light.", "Tu TV, bajo una nueva luz."), cx, y + 36, cSlogan);
+            y += 45 + gap;
+            // 2. design and development
+            y = credLabel(c, Ui.tr("DESENHADO E DESENVOLVIDO POR", "DESIGNED AND DEVELOPED BY", "DISEÑADO Y DESARROLLADO POR"), LILY, y);
+            c.drawText("Alogus Tov", cx, y + 18 + 48, cName);
+            y += 18 + 60 + gap;
+            // 3. powered by
+            y = credLabel(c, "POWERED BY", PEACH, y);
+            c.drawText("Free My TV", cx, y + 18 + 48, cName);
+            y += 18 + 60 + 12;
+            c.drawText(Ui.tr("O projeto de onde nasce o Borealis.", "The project Borealis is born from.", "El proyecto del que nace Borealis."), cx, y + 22.5f, cSupport);
+            y += 22.5f + gap;
+            // 4. TMDB
+            y = credLabel(c, Ui.tr("DADOS DE FILMES E SÉRIES", "MOVIE AND TV DATA", "DATOS DE PELÍCULAS Y SERIES"), MELON, y);
+            y += 24;
+            Bitmap logo = tmdb();
+            float lh = 69;
+            if (logo != null) {
+                float lw = lh * logo.getWidth() / logo.getHeight();
+                tmp.set(cx - lw / 2, y, cx + lw / 2, y + lh);
+                c.drawBitmap(logo, null, tmp, null);
+            } else {   // the file is not in the app yet: a plain word, never a made-up logo
+                c.drawText("TMDB", cx, y + 48, cName);
+            }
+            y += lh + 24;
+            c.save();
+            c.translate(cx - 315, y);
+            cNotice.draw(c);
+            c.restore();
+            y += cNotice.getHeight() + gap;
+            // 5. typefaces
+            y = credLabel(c, Ui.tr("TIPOGRAFIAS", "TYPEFACES", "TIPOGRAFÍAS"), LILY, y);
+            c.drawText("Gloock · Montserrat", cx, y + 18 + 48, cName);
+            y += 18 + 60 + 12;
+            c.drawText("SIL Open Font License", cx, y + 22.5f, cSupport);
+            y += 22.5f + gap;
+            // 6. three seals
+            String[] seals = {Ui.tr("Grátis", "Free", "Gratis"), Ui.tr("Sem rastreadores", "No trackers", "Sin rastreadores"), Ui.tr("Sem contas", "No accounts", "Sin cuentas")};
+            int[] dots = {LILY, PEACH, MELON};
+            float total = 0, pg = 18, ph = 51;
+            float[] pw = new float[3];
+            for (int i = 0; i < 3; i++) {
+                pw[i] = 24 + 12 + 12 + cPill.measureText(seals[i]) + 24;
+                total += pw[i] + (i > 0 ? pg : 0);
+            }
+            float x = cx - total / 2;
+            for (int i = 0; i < 3; i++) {
+                tmp.set(x, y, x + pw[i], y + ph);
+                pPanel.setColor(0x12FFFFFF);
+                c.drawRoundRect(tmp, ph / 2, ph / 2, pPanel);
+                pPanel.setColor(dots[i]);
+                c.drawCircle(x + 24 + 6, y + ph / 2, 6, pPanel);
+                c.drawText(seals[i], x + 24 + 12 + 12, y + ph / 2 + Ui.halfCap(cPill), cPill);
+                x += pw[i] + pg;
+            }
+            y += ph + gap;
+            // 7. thanks and version
+            c.drawText(Ui.tr("Obrigado por usar o Borealis", "Thank you for using Borealis", "Gracias por usar Borealis"), cx, y + 40, cThanks);
+            y += 51 + 18;
+            c.drawText(Ui.tr("Versão ", "Version ", "Versión ") + versionName(getContext()), cx, y + 22.5f, cVer);
+            return y + 22.5f;
+        }
+
+        private void drawCredits(Canvas c, float dt, float seconds) {
+            credPaints();
+            float target = credKey == 1 ? 4f : credKey == -1 ? -4f : 1f;
+            credSpeed += (target - credSpeed) * Math.min(1f, dt * 8f);
+            credS += 95f * credSpeed * dt;
+            float loop = credH + 1080;
+            if (credS >= loop) credS -= loop;
+            if (credS < 0) credS += loop;
+            c.drawColor(android.graphics.Color.argb(39, 23, 21, 25));   // a little darker than the usual veil, to read better
+            c.save();
+            c.scale(k, k);
+            c.clipRect(0, 0, 1920, 1080);
+            c.save();
+            c.translate(0, 1080 - credS);
+            credH = credContent(c, seconds);
+            c.restore();
+            // the edges fade: 195 at the top, 225 at the bottom, from #1c1920 to nothing
+            pPanel.setShader(new LinearGradient(0, 0, 0, 195, 0xFF1C1920, 0x001C1920, Shader.TileMode.CLAMP));
+            c.drawRect(0, 0, 1920, 195, pPanel);
+            pPanel.setShader(new LinearGradient(0, 1080 - 225, 0, 1080, 0x001C1920, 0xFF1C1920, Shader.TileMode.CLAMP));
+            c.drawRect(0, 1080 - 225, 1920, 1080, pPanel);
+            pPanel.setShader(null);
+            c.drawText(Ui.tr("“Baixo” · Acelerar     “Cima” · Voltar o rolo     “Voltar” · Sair", "“Down” · Speed up     “Up” · Rewind     “Back” · Back",
+                    "“Abajo” · Acelerar     “Arriba” · Retroceder     “Atrás” · Volver"), 960, 1080 - 45, cFoot);
+            c.restore();
+        }
+
+        // MARK: - Sonido de los clics (subpanel of Apariencia; see the design delivery)
+
+        private static final int[] CLK_LEVELS = {0, 20, 40, 60, 80, 100};
+        private boolean clkOpen, clkOnCards;
+        private int clkCard;
+        private long clkT0;
+        private Paint cHdr, cCardN, cCardD, cLbl, cLblB, cWarn;
+        private final java.util.Map<String, float[]> waves = new java.util.HashMap<>();
+
+        private static String clickName(int i) {
+            switch (i) {
+                case 0: return "Aurora";
+                case 1: return "Cometa";
+                case 2: return "Marte";
+                case 3: return Ui.tr("Púlsar", "Pulsar", "Púlsar");
+                default: return "Polaris";
+            }
+        }
+
+        private static String clickDesc(int i) {
+            switch (i) {
+                case 0: return Ui.tr("Cristalino", "Crystalline", "Cristalino");
+                case 1: return Ui.tr("Redondo", "Round", "Redondo");
+                case 2: return Ui.tr("Quente", "Warm", "Cálido");
+                case 3: return Ui.tr("Mínimo", "Minimal", "Mínimo");
+                default: return Ui.tr("Neutro", "Neutral", "Neutro");
+            }
+        }
+
+        private static final int[] CLK_COLORS = {LILY, PEACH, MELON, 0xFFFFFFFF, 0xFFD9CCFF};
+
+        private int clickIndex() {
+            return Math.max(0, java.util.Arrays.asList(Prefs.CLICK_SOUNDS).indexOf(Prefs.clickSound()));
+        }
+
+        private int levelIndex() {
+            int l = Prefs.clickLevel(), best = 0;
+            for (int i = 0; i < CLK_LEVELS.length; i++) if (Math.abs(CLK_LEVELS[i] - l) < Math.abs(CLK_LEVELS[best] - l)) best = i;
+            return best;
+        }
+
+        private String clicksValue() {
+            int l = Prefs.clickLevel();
+            return l <= 0 ? Ui.tr("Desligados", "Off", "Apagados") : clickName(clickIndex()) + " · " + l + " %";
+        }
+
+        private void openClicks() {
+            clkOpen = true;
+            clkOnCards = false;
+            clkCard = clickIndex();
+            clkT0 = SystemClock.uptimeMillis();
+            click().loadAll();
+            invalidate();
+            spoken.focusMoved();
+        }
+
+        private void closeClicks() {
+            clkOpen = false;
+            clkT0 = SystemClock.uptimeMillis();
+            invalidate();
+            spoken.focusMoved();
+        }
+
+        private boolean clicksKey(KeyEvent e, boolean down) {
+            int code = e.getKeyCode();
+            boolean ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
+            if (code == KeyEvent.KEYCODE_BACK) {
+                if (down) {
+                    if (e.getRepeatCount() == 0) backDown = true;
+                } else {
+                    if (backDown && !e.isCanceled()) closeClicks();
+                    backDown = false;
+                }
+                return true;
+            }
+            if (ok) {
+                if (down) {
+                    if (e.getRepeatCount() == 0) okDown = true;
+                } else {
+                    if (okDown && !e.isCanceled() && spoken.keyClick() && clkOnCards) {
+                        Prefs.setClickSound(Prefs.CLICK_SOUNDS[clkCard]);
+                        click().preview(Prefs.CLICK_SOUNDS[clkCard], true);
+                        invalidate();
+                        spoken.focusMoved();
+                    }
+                    okDown = false;
+                }
+                return true;
+            }
+            if (!down) return code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN || code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT;
+            switch (code) {
+                case KeyEvent.KEYCODE_DPAD_LEFT:
+                case KeyEvent.KEYCODE_DPAD_RIGHT: {
+                    int d = code == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1;
+                    if (clkOnCards) {
+                        int n = Prefs.CLICK_SOUNDS.length;
+                        clkCard = (clkCard + d + n) % n;
+                        click().preview(Prefs.CLICK_SOUNDS[clkCard], false);   // focusing a card is hearing it
+                    } else {
+                        int at = Math.max(0, Math.min(CLK_LEVELS.length - 1, levelIndex() + d));
+                        if (CLK_LEVELS[at] != Prefs.clickLevel()) {
+                            Prefs.setClickLevel(CLK_LEVELS[at]);
+                            click().preview(Prefs.clickSound(), false);   // at the new volume
+                        }
+                    }
+                    break;
+                }
+                case KeyEvent.KEYCODE_DPAD_DOWN:
+                    if (!clkOnCards) {
+                        clkOnCards = true;
+                        clkCard = clickIndex();
+                        click().preview(Prefs.CLICK_SOUNDS[clkCard], false);
+                    }
+                    break;
+                case KeyEvent.KEYCODE_DPAD_UP:
+                    clkOnCards = false;
+                    break;
+                default:
+                    return false;
+            }
+            invalidate();
+            spoken.focusMoved();
+            return true;
+        }
+
+        /** The shape of a sound (its OK click): 24 bars of its loudness, read from the WAV. */
+        private float[] waveOf(String name) {
+            float[] w = waves.get(name);
+            if (w != null) return w;
+            w = new float[24];
+            try (java.io.InputStream in = getContext().getAssets().open("sounds/" + name + "_ok.wav")) {
+                java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[4096];
+                for (int n; (n = in.read(buf)) > 0; ) bo.write(buf, 0, n);
+                byte[] d = bo.toByteArray();
+                int start = 44;
+                for (int i = 12; i + 8 < d.length; ) {   // the "data" chunk
+                    int len = (d[i + 4] & 255) | (d[i + 5] & 255) << 8 | (d[i + 6] & 255) << 16 | (d[i + 7] & 255) << 24;
+                    if (d[i] == 'd' && d[i + 1] == 'a' && d[i + 2] == 't' && d[i + 3] == 'a') {
+                        start = i + 8;
+                        break;
+                    }
+                    i += 8 + len;
+                }
+                int samples = (d.length - start) / 2;
+                float peak = 1;
+                for (int b = 0; b < w.length; b++) {
+                    int from = samples * b / w.length, to = Math.max(from + 1, samples * (b + 1) / w.length);
+                    float m = 0;
+                    for (int s = from; s < to; s++) {
+                        int at = start + s * 2;
+                        if (at + 1 >= d.length) break;
+                        m = Math.max(m, Math.abs((short) ((d[at] & 255) | (d[at + 1] << 8))));
+                    }
+                    w[b] = m;
+                    peak = Math.max(peak, m);
+                }
+                for (int b = 0; b < w.length; b++) w[b] = Math.max(0.06f, w[b] / peak);
+            } catch (Exception e) {
+                java.util.Arrays.fill(w, 0.3f);
+            }
+            waves.put(name, w);
+            return w;
+        }
+
+        private void clkPaints() {
+            if (cHdr != null && cHdr.getTextSize() == 19.5f * k) return;
+            cHdr = Ui.text(Ui.bold, 19.5f * k, LILY);
+            cHdr.setLetterSpacing(0.08f);
+            cCardN = Ui.text(Ui.bold, 25.5f * k, 0xFFFFFFFF);
+            cCardD = Ui.text(Ui.medium, 18 * k, 0xB3FFFFFF);
+            cLbl = Ui.text(Ui.medium, 19.5f * k, 0x99FFFFFF);
+            cLbl.setTextAlign(Paint.Align.CENTER);
+            cLblB = Ui.text(Ui.bold, 19.5f * k, 0xFFFFFFFF);
+            cLblB.setTextAlign(Paint.Align.CENTER);
+            cWarn = Ui.text(Ui.semibold, 22.5f * k, MELON);
+        }
+
+        /** Apariencia while its sound picker opens or closes: the rows go back (alpha, scale) and the picker grows from the Clics row. */
+        private void drawAppearanceWithClicks(Canvas c, int g, float seconds) {
+            clkPaints();
+            profPaints();
+            long now = SystemClock.uptimeMillis(), el = now - clkT0;
+            float ox = (P_L + 368 * 1.5f) * k, oy = (P_T + 400 * 1.5f) * k;
+            float ca = 1, cs = 1, ga = 0, gs = 1;
+            if (clkOpen) {
+                float a = pc(el / 200f), gg = pc(el / 320f);
+                ca = 1 - a;
+                cs = 1 - 0.06f * a;
+                ga = gg;
+                gs = 0.55f + 0.45f * gg;
+            } else if (el < 340) {
+                float gg = pc(el / 220f), a = pc((el - 80) / 260f);
+                ga = 1 - gg;
+                gs = 1 - 0.45f * gg;
+                ca = a;
+                cs = 0.94f + 0.06f * a;
+            } else {
+                ca = 1;
+            }
+            if (ca > 0.01f) {
+                c.save();
+                c.scale(cs, cs, ox, oy);
+                int layer = c.saveLayerAlpha(P_L * k, P_T * k, (P_L + P_W) * k, (P_T + P_H) * k, Math.round(255 * ca));
+                c.drawText(groupInfo()[g - 1][0], (P_L + 38) * k, (P_T + 78) * k, pPanelTitle);
+                drawPanelRows(c, g, seconds);
+                c.restoreToCount(layer);
+                c.restore();
+            }
+            if (ga > 0.01f) {
+                c.save();
+                c.scale(gs, gs, ox, oy);
+                int layer = c.saveLayerAlpha(P_L * k, P_T * k, (P_L + P_W) * k, (P_T + P_H) * k, Math.round(255 * ga));
+                drawClicksPanel(c);
+                c.restoreToCount(layer);
+                c.restore();
+            }
+        }
+
+        private void drawClicksPanel(Canvas c) {
+            float px = P_L * k, py = P_T * k;
+            c.drawText(Ui.tr("Som dos cliques", "Click sounds", "Sonido de los clics"), px + 38 * k, py + 78 * k, pPanelTitle);
+            c.drawText(Ui.tr("Foque um som para ouvi-lo. OK o escolhe.", "Focus a sound to hear it. OK chooses it.", "Enfoca un sonido para escucharlo. OK lo elige."),
+                    px + 38 * k, py + 118 * k, pDesc);
+            // volume
+            c.drawText(Ui.tr("VOLUME", "VOLUME", "VOLUMEN"), px + 57 * k, py + 205 * k, cHdr);
+            int level = levelIndex();
+            float bx = px + 57 * k, by = py + 234 * k, sw = 154.5f * k, sh = 66 * k, sg = 12 * k;
+            String[] labels = {Ui.tr("Desligado", "Off", "Apagado"), "20 %", "40 %", "60 %", "80 %", "100 %"};
+            float gl = bx + sw + sg;   // the gradient is one piece over the five stops
+            LinearGradient grad = new LinearGradient(gl, 0, gl + 5 * sw + 4 * sg, 0, new int[] {LILY, PEACH, MELON}, new float[] {0f, 0.55f, 1f}, Shader.TileMode.CLAMP);
+            for (int i = 0; i < 6; i++) {
+                float x = bx + i * (sw + sg);
+                tmp.set(x, by, x + sw, by + sh);
+                if (i == 0) {
+                    pPanel.setShader(null);
+                    pPanel.setColor(level == 0 ? Ui.alpha(MELON, 0.28f) : 0x1AFFFFFF);
+                } else if (i <= level) {
+                    pPanel.setShader(grad);
+                    pPanel.setColor(0xFFFFFFFF);
+                } else {
+                    pPanel.setShader(null);
+                    pPanel.setColor(0x1AFFFFFF);
+                }
+                c.drawRoundRect(tmp, 21 * k, 21 * k, pPanel);
+                pPanel.setShader(null);
+                if (i == 0) {   // the muted speaker
+                    int col = level == 0 ? MELON : 0xCCFFFFFF;
+                    Symbols.draw(getContext(), c, "speaker", tmp.centerX(), tmp.centerY(), 33 * k, col);
+                    ringPaint.setStyle(Paint.Style.STROKE);
+                    ringPaint.setShader(null);
+                    ringPaint.setColor(col);
+                    ringPaint.setStrokeWidth(3.6f * k);
+                    ringPaint.setStrokeCap(Paint.Cap.ROUND);
+                    c.drawLine(tmp.centerX() - 15 * k, tmp.centerY() - 15 * k, tmp.centerX() + 15 * k, tmp.centerY() + 15 * k, ringPaint);
+                    ringPaint.setStrokeCap(Paint.Cap.BUTT);
+                    ringPaint.setColor(0xFFFFFFFF);
+                }
+                c.drawText(labels[i], tmp.centerX(), tmp.bottom + 13.5f * k + 15 * k, i == level ? cLblB : cLbl);
+            }
+            if (!clkOnCards) {   // the focus: a gradient ring on the level in use
+                float x = bx + level * (sw + sg);
+                tmp.set(x - 10.5f * k, by - 10.5f * k, x + sw + 10.5f * k, by + sh + 10.5f * k);   // 6 of air + the 4.5 ring
+                gradientRing(c, tmp, 30 * k, 4.5f * k, 1f);
+            }
+            // sounds
+            c.drawText(Ui.tr("SOM", "SOUND", "SONIDO"), px + 57 * k, py + 414 * k, cHdr == null ? pPanel : cHdr);
+            float cw = 183 * k, ch = 264 * k, cgap = 18 * k, cy0 = py + 450 * k;
+            boolean off = Prefs.clickLevel() == 0;
+            int cur = clickIndex();
+            for (int i = 0; i < 5; i++) {
+                float x = bx + i * (cw + cgap);
+                tmp.set(x, cy0, x + cw, cy0 + ch);
+                int layer = off ? c.saveLayerAlpha(x - 12 * k, cy0 - 12 * k, x + cw + 12 * k, cy0 + ch + 12 * k, 128) : -1;
+                pPanel.setColor(i == cur ? 0xFF26212B : 0x12FFFFFF);
+                c.drawRoundRect(tmp, 30 * k, 30 * k, pPanel);
+                float[] wv = waveOf(Prefs.CLICK_SOUNDS[i]);
+                float ww = 138 * k, wh = 66 * k, wl = x + (cw - ww) / 2, wc = cy0 + 36 * k + wh / 2, bw = ww / wv.length;
+                pPanel.setColor(CLK_COLORS[i]);
+                for (int b = 0; b < wv.length; b++) {
+                    float hh = Math.max(4.5f * k, wh * wv[b]);
+                    tmp2.set(wl + b * bw + bw * 0.2f, wc - hh / 2, wl + (b + 1) * bw - bw * 0.2f, wc + hh / 2);
+                    c.drawRoundRect(tmp2, bw * 0.3f, bw * 0.3f, pPanel);
+                }
+                c.drawText(clickName(i), x + 21 * k, cy0 + 168 * k, cCardN);
+                c.drawText(clickDesc(i), x + 21 * k, cy0 + 204 * k, cCardD);
+                if (clkOnCards && i == clkCard) {
+                    tmp.set(x - 6 * k, cy0 - 6 * k, x + cw + 6 * k, cy0 + ch + 6 * k);
+                    gradientRing(c, tmp, 36 * k, 4.5f * k, 1f);
+                }
+                if (i == cur) drawLilyCheck(c, x + cw - 30 * k, cy0 + 30 * k, 22.5f * k);
+                if (layer >= 0) c.restoreToCount(layer);
+            }
+            if (off) {
+                Paint.Align was = cWarn.getTextAlign();
+                cWarn.setTextAlign(Paint.Align.CENTER);
+                c.drawText(Ui.tr("Os cliques estão desligados. Aumente o volume para ouvi-los.", "Clicks are off. Turn the volume up to hear them.",
+                        "Los clics están apagados. Sube el volumen para escucharlos."), px + P_W * k / 2, cy0 + ch + 54 * k, cWarn);
+                cWarn.setTextAlign(was);
+            }
+            // the three hints
+            String[] hints = {Ui.tr("Esq./Dir. · Volume", "Left/Right · Volume", "Izq./Der. · Volumen"), Ui.tr("OK · Escolher som", "OK · Choose sound", "OK · Elegir sonido"),
+                    Ui.tr("Voltar · Voltar", "Back · Back", "Atrás · Volver")};
+            float ph = 60 * k, gap = 18 * k, total = 0;
+            float[] wd = new float[3];
+            for (int i = 0; i < 3; i++) {
+                wd[i] = pPillT.measureText(hints[i]) + 60 * k;
+                total += wd[i] + (i > 0 ? gap : 0);
+            }
+            float x0 = px + P_W * k / 2 - total / 2, pyy = py + (P_H - 33) * k - ph;
+            for (int i = 0; i < 3; i++) {
+                pPanel.setColor(0x14FFFFFF);
+                tmp.set(x0, pyy, x0 + wd[i], pyy + ph);
+                c.drawRoundRect(tmp, ph / 2, ph / 2, pPanel);
+                c.drawText(hints[i], tmp.centerX() - pPillT.measureText(hints[i]) / 2, tmp.centerY() + Ui.halfCap(pPillT), pPillT);
+                x0 += wd[i] + gap;
+            }
+        }
+
+        // MARK: - The two-column layout (the design's 1280 x 720 board x 1.5)
+
+        // The design's group icons: stroked drawings on a 24-unit board (palette, monitor, sliders, remote, sun).
+        private static final String[][] ICONS = {
+            {"M12 3a9 9 0 1 0 0 18c1.2 0 2-.8 2-1.8 0-1.4-1.2-1.6-1.2-2.8 0-1 .8-1.6 1.8-1.6H17a4 4 0 0 0 4-4C21 6.7 17 3 12 3z",
+                "M6.5 11a1 1 0 1 0 2 0a1 1 0 1 0-2 0z", "M9 7.5a1 1 0 1 0 2 0a1 1 0 1 0-2 0z", "M13.5 7.5a1 1 0 1 0 2 0a1 1 0 1 0-2 0z"},
+            {"M5 4h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z", "M5 19h4M12 19h7"},
+            {"M4 7h9M17 7h3M4 17h3M11 17h9", "M13 7a2 2 0 1 0 4 0a2 2 0 1 0-4 0z", "M7 17a2 2 0 1 0 4 0a2 2 0 1 0-4 0z"},
+            {"M12 3a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4z", "M10.8 8a1.2 1.2 0 1 0 2.4 0a1.2 1.2 0 1 0-2.4 0z", "M12 12v3"},
+            {"M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0z", "M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"},
+            {"M12 21c0 0-7.5-4.6-9.6-9.2C.9 8.3 2.8 4.5 6.5 4.5c2.1 0 3.9 1.2 5.5 3.2 1.6-2 3.4-3.2 5.5-3.2 3.7 0 5.6 3.8 4.1 7.3C19.5 16.4 12 21 12 21z"}};
+        private final android.graphics.Path iconPath = new android.graphics.Path();
+        private final Paint iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        private void drawGroupIcon(Canvas c, int g, float cx, float cy, float size, int color) {
+            float sc = size / 24f;
+            c.save();
+            c.translate(cx - size / 2, cy - size / 2);
+            c.scale(sc, sc);
+            iconPaint.setStyle(Paint.Style.STROKE);
+            iconPaint.setStrokeWidth(1.7f);
+            iconPaint.setStrokeCap(Paint.Cap.ROUND);
+            iconPaint.setStrokeJoin(Paint.Join.ROUND);
+            iconPaint.setColor(color);
+            for (String d : ICONS[g - 1]) {
+                iconPath.rewind();
+                svgPath(iconPath, d);
+                c.drawPath(iconPath, iconPaint);
+            }
+            c.restore();
+        }
+
+        /** A small SVG path reader: M L H V C A Z, absolute and relative (all the icons need). */
+        private static void svgPath(android.graphics.Path p, String d) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("[MmLlHhVvCcAaZz]|[-+]?(?:\\d*\\.\\d+|\\d+\\.?)").matcher(d);
+            List<String> t = new ArrayList<>();
+            while (m.find()) t.add(m.group());
+            int i = 0;
+            char cmd = 0;
+            float x = 0, y = 0, sx = 0, sy = 0;
+            while (i < t.size()) {
+                String tk = t.get(i);
+                if (Character.isLetter(tk.charAt(0))) {
+                    cmd = tk.charAt(0);
+                    i++;
+                    if (cmd == 'z' || cmd == 'Z') {
+                        p.close();
+                        x = sx;
+                        y = sy;
+                    }
+                    continue;
+                }
+                boolean rel = Character.isLowerCase(cmd);
+                switch (Character.toUpperCase(cmd)) {
+                    case 'M': {
+                        float nx = Float.parseFloat(t.get(i)) + (rel ? x : 0), ny = Float.parseFloat(t.get(i + 1)) + (rel ? y : 0);
+                        i += 2;
+                        p.moveTo(nx, ny);
+                        x = sx = nx;
+                        y = sy = ny;
+                        cmd = rel ? 'l' : 'L';
+                        break;
+                    }
+                    case 'L': {
+                        float nx = Float.parseFloat(t.get(i)) + (rel ? x : 0), ny = Float.parseFloat(t.get(i + 1)) + (rel ? y : 0);
+                        i += 2;
+                        p.lineTo(nx, ny);
+                        x = nx;
+                        y = ny;
+                        break;
+                    }
+                    case 'H': {
+                        float nx = Float.parseFloat(t.get(i)) + (rel ? x : 0);
+                        i++;
+                        p.lineTo(nx, y);
+                        x = nx;
+                        break;
+                    }
+                    case 'V': {
+                        float ny = Float.parseFloat(t.get(i)) + (rel ? y : 0);
+                        i++;
+                        p.lineTo(x, ny);
+                        y = ny;
+                        break;
+                    }
+                    case 'C': {
+                        float[] v = new float[6];
+                        for (int j = 0; j < 6; j++) v[j] = Float.parseFloat(t.get(i + j)) + (rel ? (j % 2 == 0 ? x : y) : 0);
+                        i += 6;
+                        p.cubicTo(v[0], v[1], v[2], v[3], v[4], v[5]);
+                        x = v[4];
+                        y = v[5];
+                        break;
+                    }
+                    case 'A': {
+                        float rx = Float.parseFloat(t.get(i)), ry = Float.parseFloat(t.get(i + 1));
+                        boolean large = Float.parseFloat(t.get(i + 3)) != 0, sweep = Float.parseFloat(t.get(i + 4)) != 0;
+                        float nx = Float.parseFloat(t.get(i + 5)) + (rel ? x : 0), ny = Float.parseFloat(t.get(i + 6)) + (rel ? y : 0);
+                        i += 7;
+                        svgArc(p, x, y, rx, ry, large, sweep, nx, ny);
+                        x = nx;
+                        y = ny;
+                        break;
+                    }
+                    default:
+                        i++;
+                }
+            }
+        }
+
+        /** An SVG elliptical arc (no rotation) from (x0, y0) to (x, y), as Path.arcTo wants it: a box and angles. */
+        private static void svgArc(android.graphics.Path p, float x0, float y0, float rxIn, float ryIn, boolean large, boolean sweep, float x, float y) {
+            double rx = Math.abs(rxIn), ry = Math.abs(ryIn);
+            if (rx == 0 || ry == 0) {
+                p.lineTo(x, y);
+                return;
+            }
+            double dx = (x0 - x) / 2.0, dy = (y0 - y) / 2.0;
+            double lam = dx * dx / (rx * rx) + dy * dy / (ry * ry);
+            if (lam > 1) {
+                double s = Math.sqrt(lam);
+                rx *= s;
+                ry *= s;
+            }
+            double num = rx * rx * ry * ry - rx * rx * dy * dy - ry * ry * dx * dx, den = rx * rx * dy * dy + ry * ry * dx * dx;
+            double co = Math.sqrt(Math.max(0, num / den));
+            if (large == sweep) co = -co;
+            double cxp = co * rx * dy / ry, cyp = -co * ry * dx / rx;
+            double cx = cxp + (x0 + x) / 2.0, cy = cyp + (y0 + y) / 2.0;
+            double th1 = Math.atan2((dy - cyp) / ry, (dx - cxp) / rx);
+            double th2 = Math.atan2((-dy - cyp) / ry, (-dx - cxp) / rx);
+            double dth = th2 - th1;
+            if (sweep && dth < 0) dth += 2 * Math.PI;
+            else if (!sweep && dth > 0) dth -= 2 * Math.PI;
+            p.arcTo(new RectF((float) (cx - rx), (float) (cy - ry), (float) (cx + rx), (float) (cy + ry)), (float) Math.toDegrees(th1), (float) Math.toDegrees(dth));
+        }
+
+        private static final float P_L = 720, P_T = 72, P_W = 1104, P_H = 936, P_ROWS_T = 177, P_ROW_H = 84, P_PITCH = 90, P_SECT = 66;
+        private static final float C_L = 96, C_T = 165, C_W = 570, C_H = 111, C_GAP = 15, SUPPORT_EXTRA = 18;   // six cards: the five groups and, after a thin line, "Apoya a Borealis"
+        /** The rows of Sistema are a little shorter (81 / 87) so that its five rows and the status fit. */
+        private static float rowH(int g) {
+            return g == 5 ? 81 : P_ROW_H;
+        }
+
+        private static float rowPitch(int g) {
+            return g == 5 ? 87 : P_PITCH;
+        }
+
+        private static final int SUPPORT = 5;   // the sixth card: Apoya a Borealis
+
+        /** Left column (1920 units): "Mi perfil" (focus -1) on top, then the five groups, a thin line and "Apoya a Borealis". */
+        private static float cardTop(int row) {
+            if (row < 0) return 165;
+            if (row == SUPPORT) return 870;
+            return 312 + row * 108;
+        }
+
+        private static float cardH(int row) {
+            return row < 0 ? 126 : 96;
+        }
+        private final Spring panelScroll = new Spring(0.28f, 0.9f, 0);
+        private int lastCard = 1, panelShown = -1;
+        private float secX, secR;
+
+        /** The first screen and the five groups share one layout: the groups on the left, the open group's rows in a panel. */
+        private boolean twoCol() {
+            return screen == MAIN || screen == GROUP || screen == REMOTE_KEYS;
+        }
+
+        /** The group the panel shows: the one under the cursor on the first screen, the open one inside a group. */
+        private int shownGroup() {
+            if (screen == GROUP) return group;
+            if (screen == REMOTE_KEYS) return 4;
+            int[] o = groupOrder();
+            if (screen == MAIN && focus >= 0 && focus < o.length) lastCard = o[focus];
+            return lastCard;
+        }
+
+        private int[] panelIds(int g) {
+            if (g == 4) return null;
+            int was = group;
+            group = g;
+            int[] r = groupIds();
+            group = was;
+            return r;
+        }
+
+        /** A heading that starts a block of rows (a divider and a small title above it), or null. */
+        private String sectionOf(int g, int id) {
+            if (g == 1 && id == WALLPAPER_ROW) return Ui.tr("TELA", "DISPLAY", "PANTALLA");
+            if (g == 1 && id == ID_SOUND) return Ui.tr("SONS", "SOUNDS", "SONIDOS");
+            if (g == 3 && id == ID_WELCOME) return Ui.tr("BOAS-VINDAS", "WELCOME", "BIENVENIDA");
+            if (g == 2 && id == 5) return Ui.tr("INÍCIO", "HOME", "INICIO");
+            if (g == 2 && id == 7) return Ui.tr("WIDGETS", "WIDGETS", "WIDGETS");
+            return null;
+        }
+
+        /** Top of a panel row in 1920-wide units, with the panel not scrolled. */
+        private float rowTopAt(int g, int i) {
+            float t = P_ROWS_T + i * rowPitch(g);
+            int[] ids = panelIds(g);
+            if (ids != null) for (int j = 0; j <= i && j < ids.length; j++) if (sectionOf(g, ids[j]) != null) t += P_SECT;
+            if (g == 4 && i >= Prefs.KEYS.length) t += P_SECT;   // the remote's own settings button sits under a heading
+            return t;
+        }
+
+        private static String[] plus(String[] a, String extra) {
+            String[] r = java.util.Arrays.copyOf(a, a.length + 1);
+            r[a.length] = extra;
+            return r;
+        }
+
+        private Boolean toggleOf(int id) {
+            switch (id) {
+                case ID_SPLASH: return Prefs.splash();
+                case ID_SOUND: return Prefs.startupSound();
+                case ID_UPDATE_AUTO: return Prefs.updateAuto();
+                case 7: return Prefs.weather();
+                default: return null;
+            }
+        }
+
+        private void gradientRing(Canvas c, RectF box, float radius, float width, float alpha) {
+            float half = width / 2;
+            tmp2.set(box.left + half, box.top + half, box.right - half, box.bottom - half);
+            ringPaint.setStyle(Paint.Style.STROKE);
+            ringPaint.setStrokeWidth(width);
+            ringPaint.setShader(new LinearGradient(box.left, 0, box.right, 0, new int[] {LILY, PEACH, MELON}, new float[] {0f, 0.55f, 1f}, Shader.TileMode.CLAMP));
+            ringPaint.setAlpha(Math.round(255 * Ui.clamp(alpha)));
+            c.drawRoundRect(tmp2, radius - half, radius - half, ringPaint);
+            ringPaint.setShader(null);
+            ringPaint.setAlpha(255);
+        }
+
+        private void drawTwoColumns(Canvas c, float seconds) {
+            int g = shownGroup();
+            if (panelShown != g) {
+                panelShown = g;
+                panelScroll.snap(0);
+            }
+            c.drawText(Ui.tr("Configurações", "Settings", "Ajustes"), C_L * k, 128 * k, pTitle);
+            drawCards(c, g);
+            drawPanel(c, g, seconds);
+        }
+
+        /** The five groups, top left: the open one has the gradient border; the cursor (first screen) moves it. */
+        private void drawCards(Canvas c, int shown) {
+            String[][] info = groupInfo();
+            int[] tints = {LILY, PEACH, MELON, LILY, PEACH};
+            int[] order = groupOrder();
+            for (int i = 0; i < order.length; i++) {
+                int g = order[i];
+                float top = cardTop(i) * k;
+                rowRect.set(C_L * k, top, (C_L + C_W) * k, top + cardH(i) * k);
+                boolean onSupport = screen == MAIN && (focus == SUPPORT || focus == -1);
+                boolean sel = g == shown && !onSupport;
+                float f = !sel ? 0 : screen == MAIN ? Ui.clamp(pop[i].value) : (focus == -2 ? Ui.clamp(wpBackPop.value) : 0);
+                float grow = 4 * k * f;
+                tmp.set(rowRect.left - grow, rowRect.top - grow, rowRect.right + grow, rowRect.bottom + grow);
+                float r = 27 * k;
+                if (f > 0.01f) {
+                    tmp.offset(0, 8 * k * f);
+                    shadow.setColor(Ui.alpha(0xFF000000, 0.35f * f));
+                    c.drawRoundRect(tmp, r, r, shadow);
+                    tmp.offset(0, -8 * k * f);
+                }
+                if (sel) {
+                    pPanel.setColor(0xFF26212B);
+                    c.drawRoundRect(tmp, r, r, pPanel);
+                    blinkFill(c, tmp, r, f);
+                    gradientRing(c, tmp, r, 4.5f * k, 1f);
+                } else {
+                    pPanel.setColor(g == shown && !(screen == MAIN && focus == -1) ? 0x24FFFFFF : 0x12FFFFFF);   // the group whose rows the panel shows, while the cursor is on "Apoya a Borealis"
+                    c.drawRoundRect(tmp, r, r, pPanel);
+                }
+                float cy = tmp.centerY();
+                drawGroupIcon(c, g, tmp.left + 46 * k, cy, 36 * k, tints[g - 1]);
+                float tx = tmp.left + 86 * k;
+                c.drawText(info[g - 1][0], tx, cy - 3 * k, sel ? pLeftTB : pLeftT);
+                c.drawText(TextUtils.ellipsize(info[g - 1][1], new TextPaint(pLeftS), tmp.right - 24 * k - tx, TextUtils.TruncateAt.END).toString(), tx, cy + 24 * k, pLeftS);
+            }
+            drawSupportCard(c);
+            drawProfileCard(c);
+        }
+
+        private Paint supDesc, supTag;
+
+        /** "Apoya a Borealis" in the panel: a centered title, one line, then the code in a ring (link and label centered under it) and three narrow reasons. */
+        private void drawSupportPanel(Canvas c) {
+            if (supDesc == null || supDesc.getTextSize() != 24 * k) {
+                supDesc = Ui.text(Ui.medium, 24 * k, 0xD1FFFFFF);
+                supDesc.setTextAlign(Paint.Align.CENTER);
+                supTag = Ui.text(Ui.semibold, 19.5f * k, 0xB3FFFFFF);
+                supTag.setTextAlign(Paint.Align.CENTER);
+            }
+            float t = SystemClock.uptimeMillis() / 1000f;
+            int[] tint = {LILY, PEACH, MELON};
+            float pcx = (P_L + P_W / 2f) * k;
+            c.save();
+            c.clipRect((P_L + 6) * k, (P_T + 6) * k, (P_L + P_W - 6) * k, (P_T + P_H - 14) * k);
+            // the title, centered with a beating heart before it (this panel is not a list, so it does not start at the left)
+            float tw = pPanelTitle.measureText(supportTitle());
+            float beat = 1 + 0.1f * (float) Math.sin(t * 4.5f), hs = 20 * k * beat;
+            iconPaint.setStyle(Paint.Style.FILL);
+            iconPaint.setColor(PEACH);
+            c.save();
+            float tStart = pcx - (34 * k + tw) / 2;
+            c.translate(tStart + 14 * k, (P_T + 62) * k);
+            c.scale(hs, hs);
+            iconPath.rewind();
+            iconPath.moveTo(0, 0.9f);
+            iconPath.cubicTo(-1.2f, 0, -0.9f, -0.9f, 0, -0.35f);
+            iconPath.cubicTo(0.9f, -0.9f, 1.2f, 0, 0, 0.9f);
+            iconPath.close();
+            c.drawPath(iconPath, iconPaint);
+            c.restore();
+            c.drawText(supportTitle(), tStart + 34 * k, (P_T + 78) * k, pPanelTitle);
+            c.drawText(Ui.tr("O Borealis é grátis e feito por uma só pessoa. Se você gosta, pode ajudar.",
+                    "Borealis is free and made by one person. If you like it, you can help.",
+                    "Borealis es gratis y lo hace una sola persona. Si te gusta, puedes ayudar."), pcx, (P_T + 140) * k, supDesc);
+
+            float groupW = 1011, gl = P_L + P_W / 2f - groupW / 2f;
+            float qs = 345 * k, qcx = (gl + 202.5f) * k, qx = qcx - qs / 2, qy = (P_T + 250) * k;
+            // hearts rising around the code
+            for (int h = 0; h < 10; h++) {
+                float ph = (t * 0.3f + h / 10f) % 1f;
+                float hx = qcx + (float) Math.sin(h * 7.3) * qs * 0.62f + (float) Math.sin(t * 1.4f + h) * 14 * k;
+                float hy = qy + qs + 30 * k - ph * (qs + 120 * k), sz = (10 + (h % 3) * 5) * k;
+                iconPaint.setColor(Ui.alpha(tint[h % 3], (float) Math.sin(Math.PI * ph) * 0.85f));
+                c.save();
+                c.translate(hx, hy);
+                c.scale(sz, sz);
+                c.drawPath(iconPath, iconPaint);
+                c.restore();
+            }
+            // the code on a white card inside the gradient ring
+            tmp.set(qx - 14 * k, qy - 14 * k, qx + qs + 14 * k, qy + qs + 14 * k);
+            pPanel.setColor(0xFFFFFFFF);
+            c.drawRoundRect(tmp, 46 * k, 46 * k, pPanel);
+            gradientRing(c, tmp, 46 * k, 8 * k, 1f);
+            String[] qr = NoticeView.SPONSOR_QR;
+            float cell = (qs - 40 * k) / qr.length, ox = qx + 20 * k, oy = qy + 20 * k;
+            pPanel.setColor(Brand.INK);
+            for (int y = 0; y < qr.length; y++)
+                for (int x = 0; x < qr[y].length(); x++)
+                    if (qr[y].charAt(x) == '1') c.drawRect(ox + x * cell, oy + y * cell, ox + (x + 1) * cell + 0.5f, oy + (y + 1) * cell + 0.5f, pPanel);
+            c.drawText("GITHUB SPONSORS", qcx, qy + qs + 64 * k, supTag);
+            Paint.Align was = pCardTB.getTextAlign();
+            pCardTB.setTextAlign(Paint.Align.CENTER);
+            c.drawText("github.com/sponsors/Alogus", qcx, qy + qs + 108 * k, pCardTB);
+            pCardTB.setTextAlign(was);
+            // three narrow reasons
+            String[] titles = {Ui.tr("É voluntário", "It is voluntary", "Es voluntario"), Ui.tr("Não libera nada", "It unlocks nothing", "No desbloquea nada"), Ui.tr("Ajuda a continuar", "It keeps it going", "Ayuda a que siga")};
+            String[] descs = {Ui.tr("Você decide se apoia e quanto.", "You decide if you help and how much.", "Tú decides si apoyar y cuánto."),
+                    Ui.tr("O Borealis é igual para todos.", "Borealis is the same for everyone.", "Borealis es igual para todos."),
+                    Ui.tr("Tempo e melhorias para o Borealis.", "Time and improvements for Borealis.", "Tiempo y mejoras para Borealis.")};
+            float rx = (gl + 405 + 66) * k, rw = 540 * k, rh = 129 * k;
+            for (int i = 0; i < 3; i++) {
+                float ry = qy - 14 * k + i * (rh + 24 * k);
+                tmp.set(rx, ry, rx + rw, ry + rh);
+                pPanel.setColor(0x14FFFFFF);
+                c.drawRoundRect(tmp, 33 * k, 33 * k, pPanel);
+                float icx = rx + 66 * k, icy = ry + rh / 2;
+                pPanel.setColor(tint[i]);
+                c.drawCircle(icx, icy, 36 * k, pPanel);
+                if (i == 0) {
+                    float pu = 15 * k * beat;
+                    iconPaint.setColor(Brand.INK);
+                    c.save();
+                    c.translate(icx, icy + k);
+                    c.scale(pu, pu);
+                    c.drawPath(iconPath, iconPaint);
+                    c.restore();
+                } else {
+                    Symbols.draw(getContext(), c, i == 1 ? "check" : "sparkles", icx, icy, 32 * k, Brand.INK);
+                }
+                c.drawText(titles[i], rx + 126 * k, icy - 6 * k, pCardT);
+                c.drawText(descs[i], rx + 126 * k, icy + 32 * k, supDescL());
+            }
+            c.restore();
+        }
+
+        private Paint supDescLeft;
+
+        private Paint supDescL() {
+            if (supDescLeft == null || supDescLeft.getTextSize() != 23 * k) supDescLeft = Ui.text(Ui.medium, 23 * k, 0xD1FFFFFF);
+            return supDescLeft;
+        }
+
+        private String supportTitle() { return Ui.tr("Apoie o Borealis", "Support Borealis", "Apoya a Borealis"); }
+
+        private String supportDesc() { return Ui.tr("Apoiar, contribuir ou doar", "Sponsor, contribute or donate", "Patrocinar, aportar o donar"); }
+
+        /** The sixth card, after a thin line: a heart, "Apoya a Borealis". OK opens the same modal the welcome ends with. */
+        private void drawSupportCard(Canvas c) {
+            float top = cardTop(SUPPORT) * k;
+            pPanel.setColor(0x24FFFFFF);
+            c.drawRect((C_L + 18) * k, top - 15 * k - 1.5f * k, (C_L + C_W - 18) * k, top - 15 * k + 1.5f * k, pPanel);
+            rowRect.set(C_L * k, top, (C_L + C_W) * k, top + cardH(SUPPORT) * k);
+            boolean sel = screen == MAIN && focus == SUPPORT;
+            float f = sel ? Ui.clamp(pop[SUPPORT].value) : 0, grow = 4 * k * f, r = 27 * k;
+            tmp.set(rowRect.left - grow, rowRect.top - grow, rowRect.right + grow, rowRect.bottom + grow);
+            if (f > 0.01f) {
+                tmp.offset(0, 8 * k * f);
+                shadow.setColor(Ui.alpha(0xFF000000, 0.35f * f));
+                c.drawRoundRect(tmp, r, r, shadow);
+                tmp.offset(0, -8 * k * f);
+            }
+            if (sel) {
+                pPanel.setColor(0xFF26212B);
+                c.drawRoundRect(tmp, r, r, pPanel);
+                blinkFill(c, tmp, r, f);
+                gradientRing(c, tmp, r, 4.5f * k, 1f);
+            } else {
+                pPanel.setColor(0x12FFFFFF);
+                c.drawRoundRect(tmp, r, r, pPanel);
+            }
+            float cy = tmp.centerY();
+            drawGroupIcon(c, 6, tmp.left + 46 * k, cy, 36 * k, PEACH);
+            float tx = tmp.left + 86 * k;
+            c.drawText(supportTitle(), tx, cy - 3 * k, sel ? pLeftTB : pLeftT);
+            c.drawText(TextUtils.ellipsize(supportDesc(), new TextPaint(pLeftS), tmp.right - 24 * k - tx, TextUtils.TruncateAt.END).toString(), tx, cy + 24 * k, pLeftS);
+        }
+
+        private void drawPanel(Canvas c, int g, float seconds) {
+            RectF box = tmp;
+            box.set(P_L * k, P_T * k, (P_L + P_W) * k, (P_T + P_H) * k);
+            float r = 42 * k;
+            box.offset(0, 24 * k);
+            shadow.setColor(0x8C000000);
+            c.drawRoundRect(box, r, r, shadow);
+            box.offset(0, -24 * k);
+            pPanel.setColor(Brand.ink(0xE6));
+            c.drawRoundRect(box, r, r, pPanel);
+            pPanel.setStyle(Paint.Style.STROKE);
+            pPanel.setStrokeWidth(1.5f * k);
+            pPanel.setColor(0x24FFFFFF);
+            tmp2.set(box.left + k, box.top + k, box.right - k, box.bottom - k);
+            c.drawRoundRect(tmp2, r - k, r - k, pPanel);
+            pPanel.setStyle(Paint.Style.FILL);
+            if (screen == MAIN && focus == -1) {
+                drawProfilePanel(c);
+                return;
+            }
+            if (screen == MAIN && focus == SUPPORT) {
+                drawSupportPanel(c);
+                invalidate();   // the hearts keep rising
+                return;
+            }
+            if (screen == GROUP && g == 1 && (clkOpen || (clkT0 > 0 && SystemClock.uptimeMillis() - clkT0 < 340))) {
+                drawAppearanceWithClicks(c, g, seconds);
+                return;
+            }
+            c.drawText(groupInfo()[g - 1][0], (P_L + 38) * k, (P_T + 78) * k, pPanelTitle);
+            drawPanelRows(c, g, seconds);
+        }
+
+        private void drawPanelRows(Canvas c, int g, float seconds) {
+            boolean keys = g == 4;
+            if (keys && appPkgs.isEmpty()) loadApps();
+            final int[] ids = panelIds(g);
+            String[] labels = keys ? plus(keyLabels(), groupLabel(ID_REMOTE)) : new String[ids.length];
+            String[] values = keys ? plus(keyValues(), groupValue(ID_REMOTE)) : new String[ids.length];
+            if (!keys) for (int i = 0; i < ids.length; i++) { labels[i] = groupLabel(ids[i]); values[i] = groupValue(ids[i]); }
+            boolean live = screen != MAIN;
+            // The panel scrolls so the row in focus (and the heading above it) is always in view.
+            float visH = (P_T + P_H - 24) - P_ROWS_T;
+            if (live && focus >= 0 && focus < labels.length) {
+                float top = rowTopAt(g, focus) - P_ROWS_T - (ids != null && sectionOf(g, ids[focus]) != null ? P_SECT : 0);
+                float bottom = rowTopAt(g, focus) - P_ROWS_T + rowH(g);
+                float cur = panelScroll.target;
+                if (top < cur) cur = Math.max(0, top);
+                if (bottom > cur + visH) cur = bottom - visH;
+                panelScroll.target = cur;
+            } else if (!live) {
+                panelScroll.target = 0;
+            }
+            c.save();
+            c.clipRect((P_L + 6) * k, (P_ROWS_T - 8) * k, (P_L + P_W - 6) * k, (P_T + P_H - 14) * k);
+            c.translate(0, -panelScroll.value * k);
+            for (int i = 0; i < labels.length; i++) {
+                float top = rowTopAt(g, i) * k;
+                rowRect.set((P_L + 27) * k, top, (P_L + P_W - 27) * k, top + rowH(g) * k);
+                String sec = keys ? (i == Prefs.KEYS.length ? Ui.tr("AJUSTES DO CONTROLE", "REMOTE SETTINGS", "AJUSTES DEL CONTROL") : null) : sectionOf(g, ids[i]);
+                if (sec != null) {
+                    pPanel.setColor(0x24FFFFFF);
+                    if (i > 0) c.drawRect(rowRect.left + 30 * k, top - 50 * k, rowRect.right - 30 * k, top - 48 * k, pPanel);
+                    header.setColor(i == 0 && (g == 1 || g == 2) ? PEACH : g == 2 ? MELON : LILY);
+                    c.drawText(sec, rowRect.left + 30 * k, top - 14 * k, header);
+                }
+                float f = live ? Ui.clamp(pop[i].value) : 0;
+                int id = keys ? (i == Prefs.KEYS.length ? ID_REMOTE : -1) : ids[i];
+                boolean locked = false;
+                String value = values[i];
+                boolean spin = false;
+                if (id == ID_LAUNCHER) {
+                    String busyText = state.optString("busy");
+                    spin = busy();
+                    value = spin ? (busyText.isEmpty() ? Ui.tr("Começando…", "Starting…") : busyText) : homeName();
+                }
+                drawPanelRow(c, rowRect, labels[i], value, keys ? null : toggleOf(id), locked, f, spin ? seconds : -1);
+            }
+            if (g == 4) {
+                float y = rowTopAt(g, labels.length) * k - 20 * k;
+                String note = RemoteKeys.supported() ? Ui.tr("Disney e Globoplay: a própria TV controla esses botões.",
+                        "Disney and Globoplay: the TV itself controls those buttons.")
+                        : Ui.tr("Esses são os botões do controle da TCL: nesta TV, os botões funcionam como sempre.",
+                        "These are the TCL remote's buttons: on this TV, the buttons work as they always did.");
+                StaticLayout sl = StaticLayout.Builder.obtain(note, 0, note.length(), new TextPaint(notice), Math.round((P_W - 114) * k)).build();
+                c.save();
+                c.translate((P_L + 57) * k, y);
+                sl.draw(c);
+                c.restore();
+            }
+            if (g == 5) drawSystemBody(c, (rowTopAt(g, labels.length - 1) + rowH(g) + 22) * k, seconds);
+            c.restore();
+        }
+
+        /** One row of the panel: a name, then a switch (toggle not null) or a value and a chevron. */
+        private void drawPanelRow(Canvas c, RectF rect, String label, String value, Boolean toggle, boolean locked, float f, float spinAt) {
+            float cy = rect.centerY();
+            if (f > 0.01f) {
+                float grow = 3 * k * f;
+                RectF b = new RectF(rect.left - grow, rect.top - grow, rect.right + grow, rect.bottom + grow);
+                float rr = 28.5f * k;
+                pPanel.setColor(0xFF26212B);
+                pPanel.setAlpha(Math.round(255 * f));
+                c.drawRoundRect(b, rr, rr, pPanel);
+                pPanel.setAlpha(255);
+                if (toggle == null) blinkFill(c, b, rr, f);   // a switch only moves; the row does not flash
+                gradientRing(c, b, rr, 4.5f * k, f * 2);
+            }
+            Paint lp = f > 0.5f ? pLabelB : pLabel;
+            lp.setColor(locked ? 0x73FFFFFF : 0xFFFFFFFF);
+            c.drawText(label, rect.left + 30 * k, cy + Ui.halfCap(lp), lp);
+            float right = rect.right - 30 * k;
+            if (toggle != null) {
+                float sw = 78 * k, sh = 45 * k, left = right - sw, top = cy - sh / 2;
+                tmp2.set(left, top, right, top + sh);
+                wpFill.setStyle(Paint.Style.FILL);
+                if (toggle && !locked) {
+                    wpFill.setShader(new LinearGradient(left, 0, right, 0, LILY, PEACH, Shader.TileMode.CLAMP));
+                    wpFill.setColor(0xFFFFFFFF);
+                } else {
+                    wpFill.setShader(null);
+                    wpFill.setColor(0x33FFFFFF);
+                }
+                c.drawRoundRect(tmp2, sh / 2, sh / 2, wpFill);
+                wpFill.setShader(null);
+                float kr = 18 * k;
+                wpFill.setColor(toggle && !locked ? 0xFFFFFFFF : 0xCCFFFFFF);
+                c.drawCircle(toggle ? right - 4.5f * k - kr : left + 4.5f * k + kr, cy, kr, wpFill);
+                return;
+            }
+            float cw = Symbols.width(getContext(), "chevron_right", 27 * k);
+            Symbols.draw(getContext(), c, "chevron_right", right - cw / 2, cy, 27 * k, f > 0.5f ? 0xFFFFFFFF : 0x99FFFFFF);
+            float vr = right - cw - 12 * k;
+            if (value != null && !value.isEmpty()) {
+                pValue.setColor(f > 0.5f ? 0xFFFFFFFF : (locked ? 0x59FFFFFF : 0xBDFFFFFF));
+                String shown = TextUtils.ellipsize(value, new TextPaint(pValue), 520 * k, TextUtils.TruncateAt.END).toString();
+                c.drawText(shown, vr, cy + Ui.halfCap(pValue), pValue);
+                if (spinAt >= 0) {
+                    spinner.setColor(0xFFFFFFFF);
+                    Ui.spinner(c, vr - pValue.measureText(shown) - 26 * k, cy, 12 * k, spinAt * 1.3f, spinner);
+                }
+            }
+        }
+
+        /** Under the System rows: the notes, the comparison, the picks and the notices, in the panel's width. */
+        private void drawSystemBody(Canvas c, float y, float seconds) {
+            secX = (P_L + 57) * k;
+            secR = (P_L + P_W - 57) * k;
+            boolean working = busy();
+            String busyText = state.optString("busy");
+            String error = state.optString("error");
+            if (working && (busyText.contains("Permitir") || busyText.contains("Allow"))) {
+                c.drawText(Ui.tr("Na TV: marque “Sempre permitir” e aperte OK.", "On the TV: tick “Always allow” and press OK."), secX, y + 20 * k, warn);
+                y += 40 * k;
+            } else if (!working && !error.isEmpty() && !(state.optBoolean("soft") && remoteButtonOn())) {
+                int width = Math.round(secR - secX);
+                if (errorLayout == null || !error.equals(errorShown) || errorLayout.getWidth() != width) {
+                    errorShown = error;
+                    errorLayout = StaticLayout.Builder.obtain(error, 0, error.length(), new TextPaint(warn), width)
+                            .setMaxLines(3).setEllipsize(TextUtils.TruncateAt.END).build();
+                }
+                c.save();
+                c.translate(secX, y - errorLayout.getLineBaseline(0) + 24 * k);
+                errorLayout.draw(c);
+                c.restore();
+                y += errorLayout.getLineBaseline(errorLayout.getLineCount() - 1) - errorLayout.getLineBaseline(0) + 36 * k;
+            }
+            pPanel.setColor(0x24FFFFFF);
+            c.drawRect(secX, y, secR, y + 2 * k, pPanel);
+            y = drawComparison(c, y + 48 * k);
+            y = drawRecs(c, y + 44 * k, false);
+            drawNotices(c, y + 44 * k);
         }
 
         // MARK: - Home Settings and Remote Buttons
 
         private static final String[] LANGUAGES = {"auto", "pt", "en", "es"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
-        /** Home Settings: language, temperature, theme, weather, quotes, then one row per coin. */
-        private static final int COIN_ROWS = 10, WALLPAPER_ROW = 9;
-        /** Rows of a group that are not in the old Home Settings list: screensaver, shelf, launcher, TV settings. */
-        private static final int ID_SAVER = 100, ID_SHELF = 101, ID_LAUNCHER = 102, ID_TV = 103, ID_SPLASH = 104, ID_WELCOME = 105, ID_SOUND = 106, ID_REMOTE = 107, ID_UPDATE = 108, ID_UPDATE_AUTO = 109, ID_HIDDEN = 110, ID_CLICKS = 111, ID_PLACE = 112;
+        /** The numbered rows (0-7: language, temperature, theme, time, name, cards, playback, weather) and the wallpaper's. */
+        private static final int WALLPAPER_ROW = 8;
+        /** Rows of a group that are not in that list: screensaver, shelf, launcher, TV settings. */
+        private static final int ID_SAVER = 100, ID_LAUNCHER = 102, ID_TV = 103, ID_SPLASH = 104, ID_WELCOME = 105, ID_SOUND = 106, ID_REMOTE = 107, ID_UPDATE = 108, ID_UPDATE_AUTO = 109, ID_HIDDEN = 110, ID_CLICKS = 111, ID_PLACE = 112, ID_ABOUT = 113, ID_ICONS = 114, ID_TOUR = 115;
         private static final float CARD_H = 130, CARD_GAP = 14;
 
-        private boolean dollar() {
-            return "BRL".equalsIgnoreCase(Config.CURRENCY.trim());
+        private String settingLabel(int id) {
+            switch (id) {
+                case 0: return Ui.tr("Idioma", "Language");
+                case 1: return Ui.tr("Temperatura", "Temperature");
+                case 2: return Ui.tr("Tema", "Theme");
+                case 3: return Ui.tr("Formato de hora", "Time format", "Formato de hora");
+                case 4: return Ui.tr("Seu nome", "Your name", "Tu nombre");
+                case 5: return Ui.tr("Cartões", "Cards", "Tarjetas");
+                case 6: return Ui.tr("Acesso à reprodução", "Playback access", "Acceso a reproducción");
+                case 7: return Ui.tr("Widget do clima", "Weather widget");
+                default: return Ui.tr("Papel de parede", "Wallpaper", "Fondo de pantalla");   // WALLPAPER_ROW
+            }
         }
 
-        private String[] settingLabels() {
-            List<String> l = new ArrayList<>();
-            l.add(Ui.tr("Idioma", "Language"));
-            l.add(Ui.tr("Temperatura", "Temperature"));
-            l.add(Ui.tr("Tema", "Theme"));
-            l.add(Ui.tr("Formato de hora", "Time format", "Formato de hora"));
-            l.add(Ui.tr("Seu nome", "Your name", "Tu nombre"));
-            l.add(Ui.tr("Cartões", "Cards", "Tarjetas"));
-            l.add(Ui.tr("Acesso à reprodução", "Playback access", "Acceso a reproducción"));
-            l.add(Ui.tr("Widget do clima", "Weather widget"));
-            l.add(Ui.tr("Widget de cotações", "Quotes widget"));
-            l.add(Ui.tr("Papel de parede", "Wallpaper", "Fondo de pantalla"));
-            l.add("Bitcoin");
-            l.add("Ethereum");
-            l.add("Solana");
-            if (dollar()) l.add(Ui.tr("Dólar", "Dollar"));
-            return l.toArray(new String[0]);
-        }
-
-        private String[] settingValues() {
-            String[] labels = settingLabels();
-            String[] v = new String[labels.length];
-            String lang = Prefs.language();
-            v[0] = lang.equals("pt") ? "Português" : lang.equals("en") ? "English" : lang.equals("es") ? "Español" : Ui.tr("Automático", "Automatic");
-            String unit = Prefs.temperature();
-            v[1] = unit.equals("C") ? "°C" : unit.equals("F") ? "°F" : Ui.tr("Automática", "Automatic");
-            String theme = Prefs.theme();
-            v[2] = theme.equals("light") ? Ui.tr("Claro", "Light") : theme.equals("dark") ? Ui.tr("Escuro", "Dark") : Ui.tr("Automático", "Automatic");
-            String tf = Prefs.timeFormat();
-            v[3] = tf.equals("24") ? "24 h" : tf.equals("12") ? "12 h" : Ui.tr("Automático", "Automatic");
-            v[4] = Prefs.name().isEmpty() ? Ui.tr("Toque OK para definir", "Press OK to set", "Pulsa OK para definir") : Prefs.name();
-            v[5] = Prefs.cardsMode().equals("recent") ? Ui.tr("Continuar assistindo", "Continue watching", "Continuar viendo")
-                    : Ui.tr("Recomendados", "Recommended", "Recomendados");
-            v[6] = Watched.permitted(getContext()) ? Ui.tr("Ligado", "On", "Activado")
-                    : Ui.tr("Desligado \u2014 OK para ligar", "Off \u2014 press OK to turn on", "Desactivado \u2014 OK para activar");
-            v[7] = onOff(Prefs.weather());
-            v[8] = onOff(Prefs.quotes());
-            v[9] = wallpaperName(Prefs.wallpaper());
-            // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
-            for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
-            return v;
+        private String settingValue(int id) {
+            switch (id) {
+                case 0: {
+                    String lang = Prefs.language();
+                    return lang.equals("pt") ? "Português" : lang.equals("en") ? "English" : lang.equals("es") ? "Español" : Ui.tr("Automático", "Automatic");
+                }
+                case 1: {
+                    String unit = Prefs.temperature();
+                    return unit.equals("C") ? "°C" : unit.equals("F") ? "°F" : Ui.tr("Automática", "Automatic");
+                }
+                case 2: {
+                    String theme = Prefs.theme();
+                    return theme.equals("light") ? Ui.tr("Claro", "Light") : theme.equals("dark") ? Ui.tr("Escuro", "Dark") : Ui.tr("Automático", "Automatic");
+                }
+                case 3: {
+                    String tf = Prefs.timeFormat();
+                    return tf.equals("24") ? "24 h" : tf.equals("12") ? "12 h" : Ui.tr("Automático", "Automatic");
+                }
+                case 4: return Prefs.name().isEmpty() ? Ui.tr("Toque OK para definir", "Press OK to set", "Pulsa OK para definir") : Prefs.name();
+                case 5: return Prefs.cardsMode().equals("recent") ? Ui.tr("Continuar assistindo", "Continue watching", "Continuar viendo")
+                        : Ui.tr("Recomendados", "Recommended", "Recomendados");
+                case 6: return Watched.permitted(getContext()) ? Ui.tr("Ligado", "On", "Activado")
+                        : Ui.tr("Desligado \u2014 OK para ligar", "Off \u2014 press OK to turn on", "Desactivado \u2014 OK para activar");
+                case 7: return onOff(Prefs.weather());
+                default: return wallpaperName(Prefs.wallpaper());   // WALLPAPER_ROW
+            }
         }
 
         private static String wallpaperName(int i) {
@@ -1623,18 +3766,6 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             }
         }
 
-        /** Changes the focused row's value one step (OK and → go forward, ← goes back). */
-        private void adjust(int dir) {
-            if (screen == REMOTE_KEYS) {
-                int n = appPkgs.size();
-                int at = appPkgs.indexOf(Prefs.keyApp(Prefs.KEYS[keyIdx(focus)]));
-                int next = at < 0 ? (dir > 0 ? 0 : n - 1) : (at + dir + n) % n;
-                Prefs.setKeyApp(Prefs.KEYS[keyIdx(focus)], appPkgs.get(next));
-                return;
-            }
-            adjustSetting(focus, dir);
-        }
-
         /** Changes one setting (by its old Home Settings row id) one step. */
         private void adjustSetting(int id, int dir) {
             switch (id) {
@@ -1663,18 +3794,19 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 case 5: Prefs.setCardsMode(Prefs.cardsMode().equals("recent") ? "recs" : "recent"); break;
                 case 6: askPlaybackAccess(); return;
                 case 7: Prefs.setWeather(!Prefs.weather()); break;
-                case 8: Prefs.setQuotes(!Prefs.quotes()); break;
                 case WALLPAPER_ROW: openWallpapers(false, false); return;
+                case ID_ICONS: {   // columns (the editor with live previews comes next)
+                    int[] opts = {6, 8, 10};
+                    int at = java.util.Arrays.binarySearch(opts, Prefs.iconCols());
+                    Prefs.setIconCols(opts[(at + dir + opts.length) % opts.length]);
+                    return;
+                }
                 case ID_SPLASH: Prefs.setSplash(!Prefs.splash()); return;
                 case ID_UPDATE_AUTO: Prefs.setUpdateAuto(!Prefs.updateAuto()); return;
                 case ID_REMOTE: askRemoteButton(); return;
-                case ID_CLICKS: Prefs.setClicks(!Prefs.clicks()); return;
+                case ID_CLICKS: openClicks(); return;
                 case ID_PLACE: askPlace(); return;
                 case ID_SOUND: Prefs.setStartupSound(!Prefs.startupSound()); if (Prefs.startupSound()) StartupSound.play(getContext()); return;
-                default:
-                    if (!Prefs.quotes()) return;
-                    Prefs.setCoin(id - COIN_ROWS, !Prefs.coin(id - COIN_ROWS));
-                    break;
             }
             HomeData.get(getContext()).settingsChanged();
         }
@@ -1711,6 +3843,16 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             openHiddenApps(true);
         }
 
+        /** From the hidden apps screen to the main list of settings (the remote's Settings button). */
+        void leaveHiddenApps() {
+            if (screen != HIDDEN_APPS) return;
+            hidFromHome = false;
+            setScreen(MAIN);
+            focus = -1;
+            invalidate();
+            spoken.focusMoved();
+        }
+
         /** The weather location: country, city, the matches (see Places). From the "new" modal it opens straight away. */
         void askPlace() {
             activity.showPlace();
@@ -1723,7 +3865,7 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 HomeApps.Item it = HomeApps.item(getContext(), pkg);
                 if (it != null) hidItems.add(it);
             }
-            screen = HIDDEN_APPS;
+            setScreen(HIDDEN_APPS);
             focus = hidItems.isEmpty() ? -2 : 0;
             hidSprings();
             invalidate();
@@ -1861,44 +4003,10 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             }
         }
 
-        /** Hidden apps: the list; picking one shows it again (in All Apps). */
-        private void askHiddenApps() {
-            final List<String> hidden = Prefs.hiddenApps();
-            if (hidden.isEmpty()) {
-                new android.app.AlertDialog.Builder(getContext())
-                        .setTitle(Ui.tr("Apps ocultos", "Hidden apps", "Apps ocultas"))
-                        .setMessage(Ui.tr("Nenhum app oculto. Para ocultar um: segure OK sobre ele na prateleira.",
-                                "No hidden apps. To hide one: hold OK on it in the shelf.",
-                                "No hay apps ocultas. Para ocultar una: mantén OK sobre ella en el estante."))
-                        .setPositiveButton("OK", null)
-                        .show();
-                return;
-            }
-            android.content.pm.PackageManager pm = getContext().getPackageManager();
-            final String[] labels = new String[hidden.size()];
-            for (int i = 0; i < labels.length; i++) {
-                try {
-                    labels[i] = String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(hidden.get(i), 0)));
-                } catch (android.content.pm.PackageManager.NameNotFoundException e) {
-                    labels[i] = hidden.get(i);
-                }
-            }
-            new android.app.AlertDialog.Builder(getContext())
-                    .setTitle(Ui.tr("Escolha um app para mostrar de novo", "Pick an app to show it again", "Elige una app para mostrarla de nuevo"))
-                    .setItems(labels, (d, which) -> {
-                        List<String> now = Prefs.hiddenApps();
-                        now.remove(hidden.get(which));
-                        Prefs.setHiddenApps(now);
-                        invalidate();
-                    })
-                    .setNegativeButton(Ui.tr("Fechar", "Close", "Cerrar"), null)
-                    .show();
-        }
-
         /** Asks how the user wants to be greeted, with Borealis's own keyboard. */
         private void askName() {
             TextEntry.Request r = new TextEntry.Request();
-            r.title = Ui.tr("Como você quer ser chamado?", "What should we call you?", "¿Cómo quieres que te llame?");
+            r.title = Ui.tr("Seu nome", "Your name", "Tu nombre");
             r.hint = Ui.tr("Digite o seu nome", "Type your name", "Escribe tu nombre");
             r.initial = Prefs.name();
             r.maxLen = 24;
@@ -1910,106 +4018,11 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
         }
 
         private boolean scrolling() {
-            return screen == PICKER || screen == SHELF_EDIT;
+            return screen == PICKER;
         }
 
         private int listSize() {
-            return screen == SHELF_EDIT ? shelfRows.size() : pickLabels.size();
-        }
-
-        // MARK: - Shelf editor
-
-        void openShelfEditor() {
-            shelfOrder.clear();
-            shelfOrder.addAll(HomeApps.shelfPackages(getContext()));
-            rebuildShelfRows(HomeApps.shelfCandidates(getContext()));
-            pickScroll = 0;
-            focus = 0;
-            group = 2;
-            screen = SHELF_EDIT;
-        }
-
-        /** Selected apps first, in shelf order, then the rest in the order they came. */
-        private void rebuildShelfRows(List<String[]> candidates) {
-            shelfRows.clear();
-            for (String pkg : shelfOrder) {
-                for (String[] cand : candidates) if (cand[0].equals(pkg)) { shelfRows.add(cand); break; }
-            }
-            for (String[] cand : candidates) if (!shelfOrder.contains(cand[0])) shelfRows.add(cand);
-        }
-
-        /** Same rows after a change: keeps the focus on the app that was focused. */
-        private void refreshShelfRows(String focusedPkg) {
-            List<String[]> all = new ArrayList<>(shelfRows);
-            rebuildShelfRows(all);
-            for (int i = 0; i < shelfRows.size(); i++) {
-                if (!shelfRows.get(i)[0].equals(focusedPkg)) continue;
-                int visible = rowCount();
-                if (i < pickScroll) pickScroll = i;
-                else if (i >= pickScroll + visible) pickScroll = i - visible + 1;
-                focus = i - pickScroll;
-                break;
-            }
-            Prefs.setShelf(shelfOrder);
-        }
-
-        /** OK: puts the app on the shelf (at the end) or takes it off. */
-        private void toggleShelfApp() {
-            String pkg = shelfRows.get(pickScroll + focus)[0];
-            if (shelfOrder.contains(pkg)) shelfOrder.remove(pkg);
-            else if (shelfOrder.size() < HomeApps.MAX_SHELF) shelfOrder.add(pkg);
-            else return;
-            refreshShelfRows(pkg);
-        }
-
-        /** ← → : moves a shelf app one place earlier or later. */
-        private void moveShelfApp(int dir) {
-            String pkg = shelfRows.get(pickScroll + focus)[0];
-            int at = shelfOrder.indexOf(pkg), to = at + dir;
-            if (at < 0 || to < 0 || to >= shelfOrder.size()) return;
-            shelfOrder.remove(at);
-            shelfOrder.add(to, pkg);
-            refreshShelfRows(pkg);
-        }
-
-        private void drawShelfEditor(Canvas c) {
-            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
-            c.drawText(Ui.tr("Prateleira", "Shelf"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
-            int rows = rowCount();
-            for (int i = 0; i < rows; i++) {
-                String[] app = shelfRows.get(pickScroll + i);
-                int place = shelfOrder.indexOf(app[0]);
-                float y = (LIST_TOP + 20 + i * (listRowH() + listRowGap())) * k;
-                rowRect.set(LIST_X * k, y, LIST_R * k, y + listRowH() * k);
-                float f = drawRowBackground(c, i);
-                rowLabel.setColor(blend(place >= 0 ? 0xF2FFFFFF : 0x80FFFFFF, 0xFFFFFFFF, f));   // white on focus, like every other list
-                rowValue.setColor(blend(0xB3FFFFFF, 0xE6FFFFFF, f));
-                float base = rowRect.centerY() + Ui.halfCap(rowLabel);
-                c.drawText(TextUtils.ellipsize(app[1], new TextPaint(rowLabel), 520 * k, TextUtils.TruncateAt.END).toString(), rowRect.left + 30 * k, base, rowLabel);
-                c.drawText(place >= 0 ? "#" + (place + 1) : Ui.tr("Fora", "Off"), rowRect.right - 30 * k, base, rowValue);
-            }
-            int total = shelfRows.size();
-            if (total > rows && rows > 0) {   // there are more apps than fit: a scroll bar at the right shows where you are
-                float top = (LIST_TOP + 20) * k, bottom = (LIST_TOP + 20 + rows * (listRowH() + listRowGap()) - listRowGap()) * k;
-                float bx = (LIST_R + 18) * k, bw = 8 * k, track = bottom - top;
-                float thumb = Math.max(48 * k, track * rows / total);
-                float at = top + (track - thumb) * Math.min(1f, pickScroll / (float) (total - rows));
-                tmp.set(bx, top, bx + bw, bottom);
-                wpFill.setStyle(Paint.Style.FILL);
-                wpFill.setShader(null);
-                wpFill.setColor(0x26FFFFFF);
-                c.drawRoundRect(tmp, bw / 2, bw / 2, wpFill);
-                tmp.set(bx, at, bx + bw, at + thumb);
-                wpFill.setShader(new LinearGradient(0, at, 0, at + thumb, Brand.accents(), null, Shader.TileMode.CLAMP));
-                wpFill.setColor(0xFFFFFFFF);
-                c.drawRoundRect(tmp, bw / 2, bw / 2, wpFill);
-                wpFill.setShader(null);
-            }
-            Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
-            float hy = (LIST_TOP + 20 + rows * (listRowH() + listRowGap()) + 36) * k;
-            c.drawText(Ui.tr("OK põe ou tira da prateleira (até " + HomeApps.MAX_SHELF + "). ← → mudam a ordem.",
-                    "OK adds or removes (up to " + HomeApps.MAX_SHELF + "). ← → change the order.",
-                    "OK pone o quita del estante (hasta " + HomeApps.MAX_SHELF + "). ← → cambian el orden."), LIST_X * k + 30 * k, hy, hint);
+            return pickLabels.size();
         }
 
         // MARK: - Wallpaper screen
@@ -2159,7 +4172,7 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             wpThumb = null;
             wpTiles = null;
             group = 1;
-            screen = GROUP;
+            setScreen(GROUP);
             focus = groupIndexOf(1, wpSaver ? ID_SAVER : WALLPAPER_ROW);
         }
 
@@ -3271,19 +5284,19 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             int at = Math.max(0, pickCurrent);
             pickScroll = Math.max(0, Math.min(at - 3, pickLabels.size() - visible));
             focus = at - pickScroll;
-            screen = PICKER;
+            setScreen(PICKER);
         }
 
         /** A long list (the apps): nine rows at a time, the one in use checked. */
         private void drawPicker(Canvas c) {
-            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            Paint heading = headingPaint();
             String title = keyRawLabel(pickFor - 1);
             c.drawText(title, LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             int rows = rowCount();
             for (int i = 0; i < rows; i++) {
                 int at = pickScroll + i;
-                float y = (LIST_TOP + 20 + i * (listRowH() + listRowGap())) * k;
-                rowRect.set(LIST_X * k, y, LIST_R * k, y + listRowH() * k);
+                float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
+                rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, 0xFFFFFFFF, f));
                 c.drawText(pickLabels.get(at), rowRect.left + 30 * k, rowRect.centerY() + Ui.halfCap(rowLabel), rowLabel);
@@ -3292,8 +5305,8 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                     Symbols.draw(getContext(), c, "check", rowRect.right - 30 * k - cw / 2, rowRect.centerY(), 26 * k, blend(0xFFFFFFFF, 0xFFFFFFFF, f));
                 }
             }
-            Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
-            float hy = (LIST_TOP + 20 + rows * (listRowH() + listRowGap()) + 36) * k;
+            Paint hint = hintPaint();
+            float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
             c.drawText((pickScroll + focus + 1) + " / " + pickLabels.size() + "  ·  " + Ui.tr("OK escolhe, Voltar cancela.", "OK picks, Back cancels."),
                     LIST_X * k + 30 * k, hy, hint);
         }
@@ -3304,17 +5317,15 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
             String[] labels = keys ? keyLabels() : new String[ids.length];
             String[] values = keys ? keyValues() : new String[ids.length];
             if (!keys) for (int i = 0; i < ids.length; i++) { labels[i] = groupLabel(ids[i]); values[i] = groupValue(ids[i]); }
-            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            Paint heading = headingPaint();
             c.drawText(keys ? Ui.tr("Botões do Controle", "Remote Buttons") : groupInfo()[group - 1][0],
                     LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             for (int i = 0; i < labels.length; i++) {
-                float y = (LIST_TOP + 20 + i * (listRowH() + listRowGap())) * k;
-                rowRect.set(LIST_X * k, y, LIST_R * k, y + listRowH() * k);
+                float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
+                rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, 0xFFFFFFFF, f));
-                boolean locked = !keys && ids[i] >= COIN_ROWS && ids[i] < 100 && !Prefs.quotes();
-                rowValue.setColor(blend(locked ? 0x59FFFFFF : 0xB3FFFFFF, locked ? 0x99FFFFFF : 0xE6FFFFFF, f));
-                if (locked) rowLabel.setColor(blend(0x73FFFFFF, 0xB3FFFFFF, f));
+                rowValue.setColor(blend(0xB3FFFFFF, 0xE6FFFFFF, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
                 c.drawText(labels[i], rowRect.left + 30 * k, base, rowLabel);
                 boolean nav = !keys && opensScreen(ids[i]);
@@ -3324,8 +5335,8 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                     Symbols.draw(getContext(), c, "chevron_right", rowRect.right - 30 * k - cw / 2, rowRect.centerY(), 22 * k, blend(0x66FFFFFF, 0xCCFFFFFF, f));
                 }
             }
-            Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
-            float hy = (LIST_TOP + 20 + labels.length * (listRowH() + listRowGap()) + 36) * k;
+            Paint hint = hintPaint();
+            float hy = (LIST_TOP + 20 + labels.length * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
             c.drawText(Ui.tr("OK ou as setas mudam o valor.", "OK or the arrows change the value."), LIST_X * k + 30 * k, hy, hint);
             if (keys) {
                 c.drawText(RemoteKeys.supported() ? Ui.tr("Disney e Globoplay: a própria TV controla esses botões.",
@@ -3409,20 +5420,24 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 goBack();
                 return;
             }
+            if (screen == ICON_EDIT) {
+                iconsApply();
+                return;
+            }
             if (screen == HIDDEN_APPS) {   // the app in focus comes back
                 hiddenRestore();
                 return;
             }
             if (screen == AVATARS) {   // the avatar picked: back to the profile
                 if (focus >= 0 && focus < Avatars.IDS.length) Prefs.setAvatar(Avatars.IDS[focus]);
-                screen = MAIN;
+                setScreen(MAIN);
                 focus = -1;
                 invalidate();
                 spoken.focusMoved();
                 return;
             }
-            if (screen == MAIN && focus == -1) {   // the profile: the list of avatars
-                openAvatars();
+            if (screen == MAIN && focus == -1) {   // "Mi perfil": into its panel
+                enterProfile();
                 return;
             }
             if (screen == HOME_CHOICE) {
@@ -3432,13 +5447,13 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                     pendingAt = SystemClock.uptimeMillis();
                 }
                 group = 5;
-                screen = GROUP;
+                setScreen(GROUP);
                 focus = 0;
             } else if (screen == PICKER) {
                 int at = pickScroll + focus;
                 Prefs.setKeyApp(Prefs.KEYS[pickFor - 1], appPkgs.get(at));
                 focus = keyPos(pickFor - 1);
-                screen = REMOTE_KEYS;
+                setScreen(REMOTE_KEYS);
             } else if (screen == WALLPAPERS) {
                 if (wpOnBack) {
                     closeWallpapers();
@@ -3472,50 +5487,54 @@ public class SettingsActivity extends Activity implements TextEntry.Host {
                 invalidate();
                 spoken.focusMoved();
                 return;
-            } else if (screen == SHELF_EDIT) {
-                toggleShelfApp();
-                invalidate();
-                return;
             } else if (screen == REMOTE_KEYS) {
+                if (focus >= Prefs.KEYS.length) {   // the remote's settings button
+                    askRemoteButton();
+                    invalidate();
+                    return;
+                }
                 openPicker(keyIdx(focus) + 1);
             } else if (screen == GROUP) {
                 int id = groupIds()[focus];
                 if (id == ID_SAVER) {
                     openWallpapers(true, true);   // the screensaver picker (its "Preview" button plays it)
-                } else if (id == ID_SHELF) {
-                    openShelfEditor();
                 } else if (id == ID_HIDDEN) {
                     openHiddenApps(false);
                 } else if (id == ID_LAUNCHER) {
                     if (busy()) return;
-                    screen = HOME_CHOICE;
+                    setScreen(HOME_CHOICE);
                     focus = homeIsBorealis() ? 0 : 1;
                 } else if (id == ID_WELCOME) {
                     OnboardingView.repeat(c);
                     activity.goHomeSoftly();
+                } else if (id == ID_TOUR) {   // the four screens, straight away (no invitation), over the home screen
+                    HomeActivity.conocePending = true;
+                    activity.goHomeSoftly();
                 } else if (id == ID_UPDATE) {
                     checkUpdateNow();
+                } else if (id == ID_ABOUT) {
+                    openCredits();
                 } else if (id == ID_TV) {
                     activity.startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
                 } else if (id == WALLPAPER_ROW) {
                     openWallpapers(false, false);
+                } else if (id == ID_ICONS) {
+                    openIcons();
                 } else {
                     adjustSetting(id, 1);
                     invalidate();
                     return;
                 }
-            } else if (screen == HOME_SETTINGS) {
-                adjust(1);
-                invalidate();
+            } else if (screen == MAIN && focus == SUPPORT) {   // "Apoya a Borealis" shows its content in the panel: nothing to open
                 return;
             } else if (groupOrder()[focus] == 4) {   // Remote control: the buttons work from inside other apps through this service
                 HomeMode.ensureRemoteService(c, 0);
                 loadApps();
-                screen = REMOTE_KEYS;
+                setScreen(REMOTE_KEYS);
                 focus = 0;
             } else {   // one of the other groups
                 group = groupOrder()[focus];
-                screen = GROUP;
+                setScreen(GROUP);
                 focus = 0;
             }
             for (Spring s : pop) s.snap(0);

@@ -37,6 +37,11 @@ final class Prefs {
         version++;
     }
 
+    /** Like put, but it does not bump `version`: changes the home picks up by itself on resume (the shelf, the hidden apps). */
+    private static void putQuiet(String key, String value) {
+        sp().edit().putString(key, value).apply();
+    }
+
     private static void put(String key, boolean value) {
         sp().edit().putBoolean(key, value).apply();
         version++;
@@ -97,32 +102,29 @@ final class Prefs {
     static void setCardsMode(String v) { put("cardsMode", v); }
 
     /**
-     * Wallpapers and screensavers are the same set, in the same order (16:9, 1920x1080): Latin word + a palette color.
-     * The first two screensavers are videos (the wallpaper is a frame); the rest are the wallpaper moving slowly.
+     * Wallpapers (home screen) are the dark set; screensavers are the earlier, brighter set plus Vesper (16:9, 1920x1080).
+     * The first two screensavers are videos (their picture is a frame); the rest are a still moving slowly.
      */
-    static final String[] WALLPAPER_FILES = {"wave.jpg", "wall2.jpg", "wall3.jpg", "wall4.jpg", "wall5.jpg"};
-    static final String[] WALLPAPER_NAMES = {"Aurora Lily", "Lumen Peach", "Velum Night", "Pictura Peach", "Luna Melon"};
-    static final String[] SAVER_FILES = {"aurora.mp4", "aurora2.mp4", "wall3.jpg", "wall4.jpg", "wall5.jpg"};
-    static final String[] SAVER_POSTERS = WALLPAPER_FILES;
-    static final String[] SAVER_NAMES = WALLPAPER_NAMES;
+    static final String[] WALLPAPER_FILES = {"wall6.jpg", "wall7.jpg", "wall8.jpg", "wall9.jpg", "wave.jpg", "wall2.jpg", "wall3.jpg", "wall4.jpg", "wall5.jpg", "wall10.jpg"};
+    static final String[] WALLPAPER_NAMES = {"Vesper", "Lumen Nox", "Luna Nox", "Velum Nox", "Aurora Lily", "Lumen Peach", "Velum Night", "Pictura Peach", "Luna Melon", "Aurora Nox"};
+    static final String[] SAVER_FILES = {"aurora.mp4", "aurora2.mp4", "wall3.jpg", "wall4.jpg", "wall5.jpg", "wall6.jpg"};
+    /** The earlier, brighter wallpapers now live only as screensavers (same order as SAVER_FILES). */
+    static final String[] SAVER_POSTERS = {"wave.jpg", "wall2.jpg", "wall3.jpg", "wall4.jpg", "wall5.jpg", "wall6.jpg"};
+    static final String[] SAVER_NAMES = {"Aurora Lily", "Lumen Peach", "Velum Night", "Pictura Peach", "Luna Melon", "Vesper"};
+
+    /** Vesper (first of the dark set) is the default. A new key: the old "wallpaper" number pointed into the old list. */
+    static final int DEFAULT_WALLPAPER = 0;
 
     static int wallpaper() {
-        if (app == null) return 0;
-        int v = sp().getInt("wallpaper", 0);
-        return v >= 0 && v < WALLPAPER_FILES.length ? v : 0;
+        if (app == null) return DEFAULT_WALLPAPER;
+        int v = sp().getInt("homeWallpaper", DEFAULT_WALLPAPER);
+        return v >= 0 && v < WALLPAPER_FILES.length ? v : DEFAULT_WALLPAPER;
     }
 
     static void setWallpaper(int v) {
         if (app == null) return;
-        sp().edit().putInt("wallpaper", v).apply();
+        sp().edit().putInt("homeWallpaper", v).apply();
         version++;
-    }
-
-    private static String[] concat(String[] a, String[] b) {
-        String[] out = new String[a.length + b.length];
-        System.arraycopy(a, 0, out, 0, a.length);
-        System.arraycopy(b, 0, out, a.length, b.length);
-        return out;
     }
 
     /** Read with MODE_MULTI_PROCESS: the settings screen (process :home) writes it, the screensaver may run in the main process. */
@@ -154,7 +156,16 @@ final class Prefs {
         version++;
     }
 
-    // MARK: - Widgets and coins
+    // MARK: - Icons and layout
+
+    /** Columns of the apps grid (the shelf is its first row): 6 wide, 8 balanced (default), 10 compact. */
+    static int iconCols() { int v = sp().getInt("iconCols", 8); return v == 6 || v == 10 ? v : 8; }
+    static void setIconCols(int v) { sp().edit().putInt("iconCols", v == 6 || v == 10 ? v : 8).apply(); version++; }
+    /** Shape of the app tiles: 0 rectangular (default), 1 square, 2 circular. */
+    static int iconShape() { int v = sp().getInt("iconShape", 0); return v == 1 || v == 2 ? v : 0; }
+    static void setIconShape(int v) { sp().edit().putInt("iconShape", v == 1 || v == 2 ? v : 0).apply(); version++; }
+
+    // MARK: - Widgets
 
     /** The Borealis opening when the TV turns on (on by default). */
     static boolean splash() { return sp().getBoolean("splash", true); }
@@ -162,17 +173,32 @@ final class Prefs {
     static boolean startupSound() { return sp().getBoolean("startupSound", true); }
     static void setStartupSound(boolean on) { put("startupSound", on); }
     /** The clicks when moving and pressing on the home screen (on by default). */
-    static boolean clicks() { return sp().getBoolean("clicks", true); }
-    static void setClicks(boolean on) { put("clicks", on); }
+    static boolean clicks() { return clickLevel() > 0; }
+
+    /** The clicks' volume in steps: 0 (off), 20, 40, 60, 80, 100. Aurora at 40 % for everybody; whoever had them off keeps them off. */
+    static int clickLevel() {
+        if (app == null) return 40;
+        if (sp().contains("clickLevel")) return sp().getInt("clickLevel", 40);
+        return sp().getBoolean("clicks", true) ? 40 : 0;
+    }
+
+    static void setClickLevel(int level) {
+        sp().edit().putInt("clickLevel", Math.max(0, Math.min(100, level))).apply();
+        version++;
+    }
+
+    static final String[] CLICK_SOUNDS = {"aurora", "cometa", "marte", "polaris", "pulsar"};
+
+    static String clickSound() {
+        String s = app == null ? "aurora" : sp().getString("clickSound", "aurora");
+        for (String n : CLICK_SOUNDS) if (n.equals(s)) return s;
+        return "aurora";
+    }
+
+    static void setClickSound(String name) { put("clickSound", name); }
 
     static boolean weather() { return sp().getBoolean("weather", true); }
     static void setWeather(boolean on) { put("weather", on); }
-
-    static boolean quotes() { return sp().getBoolean("quotes", false); }
-    static void setQuotes(boolean on) { put("quotes", on); }
-
-    static boolean coin(int i) { return sp().getBoolean("coin" + i, true); }
-    static void setCoin(int i, boolean on) { put("coin" + i, on); }
 
     // Update check (bookkeeping does not bump `version`: it must not redraw or restart the screens).
     static boolean updateAuto() { return sp().getBoolean("updateAuto", true); }
@@ -202,7 +228,7 @@ final class Prefs {
     static void setShelf(List<String> packages) {
         StringBuilder sb = new StringBuilder();
         for (String p : packages) sb.append(sb.length() == 0 ? "" : ",").append(p);
-        put("shelf", sb.toString());
+        putQuiet("shelf", sb.toString());   // the home re-reads the shelf when it resumes: no restart of the screen
     }
 
     // MARK: - Hidden apps (hidden from the shelf and from All Apps; Settings > Hidden apps brings them back)
@@ -216,7 +242,7 @@ final class Prefs {
     static void setHiddenApps(List<String> packages) {
         StringBuilder sb = new StringBuilder();
         for (String p : packages) sb.append(sb.length() == 0 ? "" : ",").append(p);
-        put("hiddenApps", sb.toString());
+        putQuiet("hiddenApps", sb.toString());
     }
 
     // MARK: - Remote buttons

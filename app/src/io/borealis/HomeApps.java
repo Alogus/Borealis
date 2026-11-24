@@ -61,6 +61,8 @@ final class HomeApps {
     static final int HIDDEN_CARD = 40;
     /** The bell in the corner buttons: a new version is available. */
     static final int UPDATE = 41;
+    /** The single "System" corner button: Wi-Fi, Bluetooth, inputs, settings and the update in one menu. */
+    static final int SYSTEM = 42;
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
     static final int TILE_W = 384, TILE_H = 216;
 
@@ -69,11 +71,14 @@ final class HomeApps {
         String key, label, pkg, inputId, number;
         String symbol;      // icon for the shortcuts and special cards
         Bitmap tile;        // 16:9 card (apps and specials)
+        Bitmap sq;          // square version (the Square and Circular shapes of the icons); null = use the card
         Bitmap logo;        // colored logo with no background (shelf); null = use the card
         Bitmap logoDark;    // version for a light background (YouTube's white icon), if any
         float logoInk;      // fraction of the logo with ink (thin logos are drawn larger, with the same "weight")
         float logoScale = 1; // size tweak by eye (compact logos need more)
         boolean connected = true;
+        int inputType;      // analog inputs (AV, component, VGA...): the TvInputInfo type; 0 for the rest
+        boolean analog;     // analog inputs: the TV does not tell whether a cable is plugged in, so "connected" is not shown for them
     }
 
     /**
@@ -95,7 +100,7 @@ final class HomeApps {
         {"peacock", "Peacock", "com.peacocktv.peacockandroid", "6E55DC", "", "1"},
         {"globoplay", "Globoplay", "com.globo.globotv", "FF5A1F", "tint", "1"},
     };
-    static final int MAX_SHELF = 7;   // one row of the panel
+    static final int MAX_SHELF = 10;   // one row of the panel (up to 10 columns)
     /** Live TV apps of some brands (the antenna's channels open through the standard Android request first). */
     static final String[] LIVE_TV_APPS = {"com.tcl.tv", "com.google.android.tv", "com.mediatek.wwtv.tvcenter", "com.sony.dtv.tvx"};
     /** Kept out of "All Apps" (only hidden, still installed). Add the ones your TV shows that you never use. */
@@ -134,10 +139,12 @@ final class HomeApps {
                 it.key = pkg;
                 it.label = ri != null ? String.valueOf(ri.loadLabel(pm)) : pkg;
                 it.tile = appTile(c, null, pkg, 0);
+                it.sq = squareTile(c, null, pkg, 0);
             } else {
                 it.key = d[0];
                 it.label = d[1];
                 it.tile = appTile(c, d[0], d[2], 0xFF000000 | Integer.parseInt(d[3], 16));
+                it.sq = squareTile(c, d[0], d[2], 0xFF000000 | Integer.parseInt(d[3], 16));
                 it.logo = shelfLogo(c, d[0], d[2], d[4], extract);
                 if (it.logo != null) it.logoInk = ink(it.logo);
                 it.logoDark = ownLogoCached(c, d[0] + "-dark");
@@ -162,10 +169,12 @@ final class HomeApps {
             it.key = pkg;
             it.label = ri != null ? String.valueOf(ri.loadLabel(pm)) : pkg;
             it.tile = appTile(c, null, pkg, 0);
+                it.sq = squareTile(c, null, pkg, 0);
         } else {
             it.key = d[0];
             it.label = d[1];
             it.tile = appTile(c, d[0], d[2], 0xFF000000 | Integer.parseInt(d[3], 16));
+                it.sq = squareTile(c, d[0], d[2], 0xFF000000 | Integer.parseInt(d[3], 16));
         }
         return it;
     }
@@ -233,15 +242,6 @@ final class HomeApps {
         return shortcut(SETTINGS, "settings", Ui.tr("Ajustes", "Settings"), "settings");
     }
 
-    /** Shortcuts in the bottom drawer. */
-    static List<Item> drawerShortcuts() {
-        List<Item> items = new ArrayList<>();
-        items.add(shortcut(ALL_APPS, "all", Ui.tr("Todos os Apps", "All Apps"), "apps"));
-        items.add(shortcut(SETTINGS, "settings", Ui.tr("Ajustes do Início", "Home Settings"), "settings"));
-        items.add(shortcut(ANDROID_SETTINGS, "tv-settings", Ui.tr("Ajustes da TV", "TV Settings"), "tv_settings"));
-        return items;
-    }
-
     /** A streaming service's app (the "Watch" button of the featured pick). */
     static Item app(String pkg, String label) {
         Item it = new Item();
@@ -257,7 +257,49 @@ final class HomeApps {
         List<Item> items = new ArrayList<>();
         if (liveTv(c) != null) items.add(shortcut(LIVE_TV, "live", Ui.tr("TV ao Vivo", "Live TV"), "tv"));
         items.addAll(inputs(c, true));
+        items.addAll(analogInputs(c));
         return items;
+    }
+
+    /**
+     * The TV's other video inputs, the ones it declares: AV (composite, the red/white/yellow RCA), component, VGA,
+     * S-Video, SCART, DVI and DisplayPort. A TV without one simply has none here. Whether a cable is plugged in is not
+     * trustworthy for these (a TCL reports them as "connected" with nothing attached), so it is not shown.
+     */
+    static List<Item> analogInputs(Context c) {
+        List<Item> out = new ArrayList<>();
+        TvInputManager tim = (TvInputManager) c.getSystemService(Context.TV_INPUT_SERVICE);
+        if (tim == null) return out;
+        try {
+            for (TvInputInfo info : tim.getTvInputList()) {
+                if (info.getParentId() != null) continue;
+                int type = info.getType();
+                String name;
+                if (type == TvInputInfo.TYPE_COMPOSITE) name = "AV";
+                else if (type == TvInputInfo.TYPE_COMPONENT) name = "Component";
+                else if (type == TvInputInfo.TYPE_VGA) name = "VGA";
+                else if (type == TvInputInfo.TYPE_SVIDEO) name = "S-Video";
+                else if (type == TvInputInfo.TYPE_SCART) name = "SCART";
+                else if (type == TvInputInfo.TYPE_DVI) name = "DVI";
+                else if (type == TvInputInfo.TYPE_DISPLAY_PORT) name = "DisplayPort";
+                else continue;
+                CharSequence custom = null;
+                try {
+                    custom = info.loadCustomLabel(c);
+                } catch (RuntimeException ignored) {
+                }
+                Item it = shortcut(INPUT, "in" + type + "-" + out.size(), custom != null && custom.length() > 0 ? custom.toString() : name, "hdmi");
+                it.inputId = info.getId();
+                it.number = "9" + out.size();   // after the HDMI ports
+                it.inputType = type;
+                it.analog = true;
+                it.connected = false;
+                out.add(it);
+            }
+        } catch (RuntimeException e) {
+            return out;
+        }
+        return out;
     }
 
     private static List<Item> inputs(Context c) {
@@ -364,58 +406,17 @@ final class HomeApps {
                 it.key = d[0];
                 it.label = d[1];
                 it.tile = appTile(c, d[0], d[2], 0xFF000000 | Integer.parseInt(d[3], 16));
+                it.sq = squareTile(c, d[0], d[2], 0xFF000000 | Integer.parseInt(d[3], 16));
             } else {
                 it.key = pkg;
                 it.label = String.valueOf(ri.loadLabel(pm));
                 it.tile = appTile(c, null, pkg, 0);
+                it.sq = squareTile(c, null, pkg, 0);
             }
             items.add(it);
         }
         Collections.sort(items, (a, b) -> a.label.toLowerCase(Locale.ROOT).compareTo(b.label.toLowerCase(Locale.ROOT)));
-        items.add(brandCard(c));
         return items;
-    }
-
-    /** Borealis's own card (opens its settings): the mark on the current wallpaper, soft, light at the top and dark at the bottom. */
-    private static Item brandCard(Context c) {
-        Item it = shortcut(SETTINGS, "borealis-settings", "Borealis", "sparkles");
-        it.tile = brandTile(c);
-        return it;
-    }
-
-    private static synchronized Bitmap brandTile(Context c) {
-        int wp = Prefs.wallpaper();
-        String key = "borealis-settings:" + wp;
-        if (TILES.containsKey(key)) return TILES.get(key);
-        Bitmap b = Bitmap.createBitmap(TILE_W, TILE_H, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(b);
-        canvas.drawColor(Brand.INK);
-        Bitmap soft = null;
-        try (InputStream in = c.getAssets().open(Prefs.WALLPAPER_FILES[wp])) {
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inSampleSize = 4;
-            Bitmap pic = BitmapFactory.decodeStream(in, null, o);
-            if (pic != null) {
-                soft = SettingsActivity.SettingsView.softBackdrop(pic);
-                pic.recycle();
-            }
-        } catch (IOException | RuntimeException | OutOfMemoryError ignored) {
-        }
-        if (soft != null) canvas.drawBitmap(soft, null, new RectF(0, 0, TILE_W, TILE_H), new Paint(Paint.FILTER_BITMAP_FLAG));
-        Paint shade = new Paint();
-        shade.setShader(new LinearGradient(0, 0, 0, TILE_H, Brand.ink(0x14), Brand.ink(0xE6), Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, TILE_W, TILE_H, shade);
-        float mh = TILE_H * 0.5f;   // the waves; the star and dot hang to their right, so the group is nudged left to look centered
-        Logo.drawSymbol(canvas, TILE_W / 2f - mh * 0.15f, TILE_H * 0.5f, mh);
-        b.setHasMipMap(true);
-        TILES.put(key, b);
-        return b;
-    }
-
-    private static Item special(Context c, int kind, String key, String label, String symbol) {
-        Item it = shortcut(kind, key, label, symbol);
-        it.tile = symbolTile(c, key, symbol);
-        return it;
     }
 
     /** Opens the item with the system zoom transition growing out of the card (the app starts opening right away). */
@@ -437,9 +438,17 @@ final class HomeApps {
             case INPUT:
                 intent = new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(it.inputId));
                 break;
-            case SETTINGS:
-                intent = new Intent().setComponent(new ComponentName(a, SettingsActivity.class));
-                break;
+            case SETTINGS: {   // the default transition: the screen is captured first, then Settings come in over it
+                final Intent own = new Intent().setComponent(new ComponentName(a, SettingsActivity.class)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ScreenTransition.open(a, () -> {
+                    try {
+                        a.startActivity(own, ActivityOptions.makeCustomAnimation(a, 0, 0).toBundle());
+                    } catch (ActivityNotFoundException | SecurityException e) {
+                        AppLog.w("couldn't open Borealis settings: " + e.getMessage());
+                    }
+                });
+                return true;
+            }
             case ANDROID_SETTINGS:
                 intent = new Intent(Settings.ACTION_SETTINGS);
                 break;
@@ -816,6 +825,78 @@ final class HomeApps {
         return Math.max(0, Math.min(1, v));
     }
 
+
+    // MARK: - Square icons (Square and Circular shapes)
+
+    private static final int SQ = 192;
+    private static final Map<String, Bitmap> SQUARES = new HashMap<>();
+
+    /** The app as a square (for the Square and Circular shapes): its logo on a brand card, or its icon cropped. Null when the shape is Rectangular. */
+    private static Bitmap squareTile(Context c, String key, String pkg, int brand) {
+        return Prefs.iconShape() == 0 ? null : squareBuild(c, key, pkg, brand);
+    }
+
+    private static synchronized Bitmap squareBuild(Context c, String key, String pkg, int brand) {
+        String cacheKey = key != null ? key : pkg;
+        if (SQUARES.containsKey(cacheKey)) return SQUARES.get(cacheKey);
+        Bitmap b = null;
+        try {
+            Bitmap logo = key == null ? null : ownLogoCached(c, key);
+            b = Bitmap.createBitmap(SQ, SQ, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(b);
+            Paint bg = new Paint();
+            bg.setShader(new LinearGradient(0, 0, 0, SQ, 0xFF2B2E3A, 0xFF17191F, Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, SQ, SQ, bg);
+            if (logo != null) {
+                Paint glow = new Paint();
+                glow.setShader(new RadialGradient(SQ / 2f, SQ * 1.15f, SQ * 0.8f, Ui.alpha(brand, 0.38f), 0x00000000, Shader.TileMode.CLAMP));
+                canvas.drawRect(0, 0, SQ, SQ, glow);
+                boolean wide = logo.getWidth() > logo.getHeight() * 1.35f;
+                float maxW = SQ * (wide ? 0.72f : 0.56f), maxH = SQ * (wide ? 0.4f : 0.56f);
+                float scale = Math.min(maxW / logo.getWidth(), maxH / logo.getHeight());
+                float lw = logo.getWidth() * scale, lh = logo.getHeight() * scale;
+                canvas.drawBitmap(logo, null, new RectF((SQ - lw) / 2, (SQ - lh) / 2, (SQ + lw) / 2, (SQ + lh) / 2),
+                        new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG));
+            } else {
+                Drawable icon = loadIcon(c, pkg);
+                if (icon instanceof AdaptiveIconDrawable) {   // the layers fill the square (the visible part is the middle two thirds)
+                    AdaptiveIconDrawable a = (AdaptiveIconDrawable) icon;
+                    int pad = Math.round(SQ * 0.25f);
+                    for (Drawable layer : new Drawable[] {a.getBackground(), a.getForeground()}) {
+                        if (layer == null) continue;
+                        layer.setBounds(-pad, -pad, SQ + pad, SQ + pad);
+                        layer.draw(canvas);
+                    }
+                } else if (icon != null) {   // legacy icon: free-form drawing on the dark card
+                    int s = Math.round(SQ * 0.62f);
+                    icon.setBounds((SQ - s) / 2, (SQ - s) / 2, (SQ + s) / 2, (SQ + s) / 2);
+                    icon.draw(canvas);
+                }
+            }
+            b.setHasMipMap(true);
+        } catch (RuntimeException | OutOfMemoryError ignored) {
+        }
+        SQUARES.put(cacheKey, b);
+        return b;
+    }
+
+    private static Drawable loadIcon(Context c, String pkg) {
+        Drawable icon = null;
+        try {
+            PackageManager pm = c.getPackageManager();
+            ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+            if (ai.icon != 0) {
+                try {
+                    icon = pm.getResourcesForApplication(ai).getDrawableForDensity(ai.icon, DisplayMetrics.DENSITY_XXXHIGH, null);
+                } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
+                }
+            }
+            if (icon == null) icon = pm.getApplicationIcon(ai);
+        } catch (PackageManager.NameNotFoundException ignored) {
+        }
+        return icon;
+    }
+
     // MARK: - Cards
 
     private static synchronized Bitmap appTile(Context c, String key, String pkg, int brand) {
@@ -892,16 +973,6 @@ final class HomeApps {
             icon.setBounds((TILE_W - s) / 2, (TILE_H - s) / 2, (TILE_W + s) / 2, (TILE_H + s) / 2);
             icon.draw(canvas);
         }
-        return b;
-    }
-
-    /** Settings and the like: the icon in white on a dark card. */
-    private static synchronized Bitmap symbolTile(Context c, String key, String symbol) {
-        if (TILES.containsKey(key)) return TILES.get(key);
-        Bitmap b = darkTile();
-        Symbols.draw(c, new Canvas(b), symbol, TILE_W / 2f, TILE_H / 2f, TILE_H * 0.36f, 0xF2FFFFFF);
-        b.setHasMipMap(true);
-        TILES.put(key, b);
         return b;
     }
 

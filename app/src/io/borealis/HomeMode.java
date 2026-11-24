@@ -371,6 +371,53 @@ final class HomeMode {
                     Ui.tr("o Android não aceitou o novo Início", "Android didn't accept the new home screen"));
             adb.shell("settings put secure screensaver_components " + DREAM);
             boolean ours = homeHolder(adb).contains(PKG) && homeKeyOpensUs(adb);   // the role says so AND the real Home button agrees
+            if (!ours && !keepsWifi && !googleDevice() && adb.shell("cmd package query-activities --brief --user 0 -a android.intent.action.MAIN"
+                    + " -c android.intent.category.HOME").contains(PKG + "/")) {
+                // The role is ours but the TV's own home screen outranks us (priority), so the Home button still opens it. Try turning it
+                // off: with a fallback home screen present the TV can't be left blank, and if the Home button does not open us after
+                // it, it is turned back on at once (then the soft Home takes over, below).
+                String homePkg = packageOf(home), found = null;
+                if (homePkg == null || homePkg.equals(PKG)) {   // we already hold the role: the TV's own is the first other real home on the list
+                    homePkg = null;
+                    for (String line : adb.shell("cmd package query-activities --brief --user 0 -a android.intent.action.MAIN"
+                            + " -c android.intent.category.HOME").split("\n")) {
+                        line = line.trim();
+                        if (line.contains("/") && !line.contains(" ") && !line.startsWith(PKG + "/") && !line.contains("FallbackHome")
+                                && !line.startsWith(GOOGLE_SETUP + "/")) {
+                            homePkg = packageOf(line);
+                            found = line;
+                            break;
+                        }
+                    }
+                }
+                boolean fallback = adb.shell("cmd package query-activities --brief --user 0 -a android.intent.action.MAIN"
+                        + " -c android.intent.category.HOME").contains("FallbackHome");
+                if (fallback && homePkg != null && !homePkg.equals(PKG) && !PROTECTED.contains(homePkg) && !owners.contains(homePkg)) {
+                    busy(c, Ui.tr("Provando o Início novo…", "Trying the new home screen…"));
+                    String out = adb.shell("pm disable-user --user 0 " + homePkg);
+                    // Google TV's setup app keeps reopening the home screen that was turned off: it goes off with it (when it is a home
+                    // screen and holds no Wi-Fi network; turning it off would erase those).
+                    boolean setupToo = setupHome && !owners.contains(GOOGLE_SETUP)
+                            && adb.shell("pm disable-user --user 0 " + GOOGLE_SETUP).contains("disabled-user");
+                    if (out.contains("disabled-user")) {
+                        if (homeKeyOpensUs(adb)) {
+                            ours = true;
+                            if (found != null) {   // remembered, so "original" can put it back
+                                home = found;
+                                JSONObject keep = state(c);
+                                keep.put("originalHome", home);
+                                save(c, keep);
+                            }
+                        }
+                        else {
+                            adb.shell("pm enable " + homePkg);
+                            if (setupToo) adb.shell("pm enable " + GOOGLE_SETUP);
+                        }
+                    } else if (setupToo) {
+                        adb.shell("pm enable " + GOOGLE_SETUP);
+                    }
+                }
+            }
             if (!ours && !keepsWifi) {
                 // Android said "Success" but kept the TV's own home screen (some TCL). Turning that one off now would leave the TV
                 // with no home screen (black screen), so nothing is turned off: the soft Home takes the Home button instead.

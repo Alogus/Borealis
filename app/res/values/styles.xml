@@ -16,21 +16,41 @@
     <!-- Coming into and leaving the settings (Back, Home, or opened from the shortcut) is always a soft fade, never a cut. -->
     <style name="Borealis.Fade" parent="@android:style/Animation">
         <item name="android:activityOpenEnterAnimation">@android:anim/fade_in</item>
-        <item name="android:activityOpenExitAnimation">@android:anim/fade_out</item>
+        <item name="android:activityOpenExitAnimation">@null</item>
         <item name="android:activityCloseEnterAnimation">@android:anim/fade_in</item>
         <item name="android:activityCloseExitAnimation">@android:anim/fade_out</item>
         <item name="android:taskOpenEnterAnimation">@android:anim/fade_in</item>
-        <item name="android:taskOpenExitAnimation">@android:anim/fade_out</item>
+        <item name="android:taskOpenExitAnimation">@null</item>
         <item name="android:taskCloseEnterAnimation">@android:anim/fade_in</item>
         <item name="android:taskCloseExitAnimation">@android:anim/fade_out</item>
         <item name="android:taskToFrontEnterAnimation">@android:anim/fade_in</item>
-        <item name="android:taskToFrontExitAnimation">@android:anim/fade_out</item>
+        <item name="android:taskToFrontExitAnimation">@null</item>
         <item name="android:taskToBackEnterAnimation">@android:anim/fade_in</item>
         <item name="android:taskToBackExitAnimation">@android:anim/fade_out</item>
     </style>
 
+    <!-- No window animation at all: Home and Settings used to cross-fade and for a moment both showed at once. -->
+    <style name="Borealis.Still" parent="@android:style/Animation">
+        <item name="android:activityOpenEnterAnimation">@null</item>
+        <item name="android:activityOpenExitAnimation">@null</item>
+        <item name="android:activityCloseEnterAnimation">@null</item>
+        <item name="android:activityCloseExitAnimation">@null</item>
+        <item name="android:taskOpenEnterAnimation">@null</item>
+        <item name="android:taskOpenExitAnimation">@null</item>
+        <item name="android:taskCloseEnterAnimation">@null</item>
+        <item name="android:taskCloseExitAnimation">@null</item>
+        <item name="android:taskToFrontEnterAnimation">@null</item>
+        <item name="android:taskToFrontExitAnimation">@null</item>
+        <item name="android:taskToBackEnterAnimation">@null</item>
+        <item name="android:taskToBackExitAnimation">@null</item>
+    </style>
+
     <style name="Borealis.Settings" parent="Borealis.Home">
-        <item name="android:windowBackground">@color/settings_background</item>
-        <item name="android:windowAnimationStyle">@style/Borealis.Fade</item>
+        <!-- No starting window: while Settings builds itself the home stays on screen (the starting window was the dark flash). -->
+        <item name="android:windowDisablePreview">true</item>
+        <!-- Transparent window and no window animation: the default transition (ScreenTransition) draws the screen below itself, so there is never a dark frame. -->
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@style/Borealis.Still</item>
     </style>
 </resources>

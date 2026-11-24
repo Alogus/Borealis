@@ -176,8 +176,21 @@ public final class MediaWatcher extends NotificationListenerService {
                 String artist = text(md, MediaMetadata.METADATA_KEY_ARTIST, MediaMetadata.METADATA_KEY_ALBUM_ARTIST,
                         MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
                 if (!playing && !NowPlaying.get().visible()) return;   // a paused session nobody listened to: not worth showing
-                Bitmap art = cover(md);
-                String uri = art == null ? uri(md) : null;
+                Bitmap art = coverMusic(md);
+                Bitmap wide = wideArt(md, art);
+                String uri = art == null ? uriMusic(md) : null;
+                String wideAddress = wide == null ? wideUri(md) : null;
+                final String songKey = title + "|" + artist;
+                logKeys(md, songKey);
+                Watched.get(this).musicSource(songKey, art, wide);
+                if (wideAddress != null && !wideAddress.equals(wideUri.get(c.getPackageName()))) {   // the wide picture is an address
+                    wideUri.put(c.getPackageName(), wideAddress);
+                    final String address = wideAddress;
+                    new Thread(() -> {
+                        Bitmap b = Watched.fetch(getApplicationContext(), address);
+                        if (b != null) main.post(() -> Watched.get(getApplicationContext()).musicWide(songKey, b));
+                    }).start();
+                }
                 Bitmap shrunk = squareOf(c.getPackageName(), title + "|" + artist, art);
                 NowPlaying.get().set(c, title, artist, shrunk, playing);
                 long dur = md.getLong(MediaMetadata.METADATA_KEY_DURATION);
@@ -252,6 +265,57 @@ public final class MediaWatcher extends NotificationListenerService {
             if (b != null) return b;
         }
         return null;
+    }
+
+    /** Music: the album picture first (it is the one in front); the wide one, if the app gives it, goes behind. */
+    private static Bitmap coverMusic(MediaMetadata md) {
+        for (String k : new String[] {MediaMetadata.METADATA_KEY_ALBUM_ART, MediaMetadata.METADATA_KEY_DISPLAY_ICON, MediaMetadata.METADATA_KEY_ART}) {
+            Bitmap b = md.getBitmap(k);
+            if (b != null) return b;
+        }
+        return null;
+    }
+
+    /** A different, bigger picture than the album's (the app's image of the artist or the song), or null. */
+    private static Bitmap wideArt(MediaMetadata md, Bitmap cover) {
+        Bitmap b = md.getBitmap(MediaMetadata.METADATA_KEY_ART);
+        if (b == null || b == cover) return null;
+        if (cover != null && b.getWidth() == cover.getWidth() && b.getHeight() == cover.getHeight()) return null;
+        return b;
+    }
+
+    private static String uriMusic(MediaMetadata md) {
+        for (String k : new String[] {MediaMetadata.METADATA_KEY_ALBUM_ART_URI, MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI, MediaMetadata.METADATA_KEY_ART_URI}) {
+            String u = md.getString(k);
+            if (u != null && !u.isEmpty()) return u;
+        }
+        return null;
+    }
+
+    private static String wideUri(MediaMetadata md) {
+        String u = md.getString(MediaMetadata.METADATA_KEY_ART_URI);
+        if (u == null || u.isEmpty()) return null;
+        String album = md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI);
+        return u.equals(album) ? null : u;
+    }
+
+    private final Map<String, String> wideUri = new HashMap<>();
+    private String loggedKeys = "";
+
+    /** What the music app really gives (once per song), to know where its pictures come from. */
+    private void logKeys(MediaMetadata md, String songKey) {
+        if (songKey.equals(loggedKeys)) return;
+        loggedKeys = songKey;
+        StringBuilder sb = new StringBuilder("music pictures:");
+        for (String k : new String[] {MediaMetadata.METADATA_KEY_ART, MediaMetadata.METADATA_KEY_ALBUM_ART, MediaMetadata.METADATA_KEY_DISPLAY_ICON}) {
+            Bitmap b = md.getBitmap(k);
+            sb.append(' ').append(k).append('=').append(b == null ? "-" : b.getWidth() + "x" + b.getHeight());
+        }
+        for (String k : new String[] {MediaMetadata.METADATA_KEY_ART_URI, MediaMetadata.METADATA_KEY_ALBUM_ART_URI, MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI}) {
+            String u = md.getString(k);
+            sb.append(' ').append(k).append('=').append(u == null || u.isEmpty() ? "-" : u);
+        }
+        AppLog.w(sb.toString());
     }
 
     private static String uri(MediaMetadata md) {

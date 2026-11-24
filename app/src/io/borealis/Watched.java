@@ -310,14 +310,40 @@ final class Watched {
         }
     }
 
+    // The pictures of the current song as the app gave them: the album (in front) and, if it has one, a wide image (behind).
+    private String musicKey = "";
+    private Bitmap musicCoverBmp, musicWideBmp;
+
+    /** Called before recordMusic with what the app gave for this song. A new song forgets the old pictures. */
+    void musicSource(String key, Bitmap cover, Bitmap wide) {
+        if (!key.equals(musicKey)) {
+            musicKey = key;
+            musicCoverBmp = null;
+            musicWideBmp = null;
+        }
+        if (cover != null) musicCoverBmp = cover;
+        if (wide != null) musicWideBmp = wide;
+    }
+
+    /** The wide picture arrived late (the app had given an address): the card is made again with it. */
+    void musicWide(String key, Bitmap wide) {
+        if (wide == null || !key.equals(musicKey)) return;
+        musicWideBmp = wide;
+        if (musicCoverBmp == null) return;   // the cover has not come yet: it will use this one
+        for (Entry e : entries) if (e.kind.equals("music")) makeMusicArt(e, musicCoverBmp);
+    }
+
     private void makeMusicArt(Entry e, Bitmap cover) {
+        if (musicCoverBmp != null && !musicCoverBmp.isRecycled()) cover = musicCoverBmp;   // the big one, not the 192 px strip
         final Bitmap copy = cover == null ? null : cover.copy(Bitmap.Config.ARGB_8888, false);
-        final File file = artFile(e);
+        final Bitmap wideCopy = musicWideBmp == null || musicWideBmp.isRecycled() ? null : musicWideBmp.copy(Bitmap.Config.ARGB_8888, false);
+        final File file = artFile(e), coverTo = coverFile(e);
         final String pkg = e.pkg;
         io.execute(() -> {
             boolean ok = false;
             try {
-                ok = copy != null ? musicCard(copy, file) : logoCard(pkg, file);
+                if (copy == null) coverTo.delete();
+                ok = copy != null ? musicCard(copy, wideCopy, file, coverTo) : logoCard(pkg, file);
             } catch (Exception | OutOfMemoryError ex) {
                 AppLog.w("music picture: " + ex);
             }
@@ -334,36 +360,46 @@ final class Watched {
         });
     }
 
-    /** The cover blurred as the background, and sharp and square in the middle (safe for the narrow cards too). */
-    private static boolean musicCard(Bitmap src, File file) throws java.io.IOException {
+    /**
+     * The card picture is only the background (the cover blurred, or the app's wide picture). The cover itself is saved
+     * apart, sharp and square: the home screen draws it in the middle of the card, over the card's shade, so it stays clear.
+     */
+    private static boolean musicCard(Bitmap src, Bitmap wide, File file, File coverTo) throws java.io.IOException {
         Bitmap out = Bitmap.createBitmap(1280, 720, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(out);
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
-        // Blurred: the cover cut to 16:9, shrunk to a handful of pixels and stretched back.
-        Bitmap tiny = Bitmap.createBitmap(32, 18, Bitmap.Config.ARGB_8888);
-        Canvas tc = new Canvas(tiny);
-        float s = Math.max(32f / src.getWidth(), 18f / src.getHeight());
-        float sw = src.getWidth() * s, sh = src.getHeight() * s;
-        tc.drawBitmap(src, null, new android.graphics.RectF((32 - sw) / 2, (18 - sh) / 2, (32 + sw) / 2, (18 + sh) / 2), p);
-        c.drawBitmap(tiny, null, new android.graphics.RectF(0, 0, 1280, 720), p);
-        tiny.recycle();
-        p.setColor(Brand.ink(0x66));
-        c.drawRect(0, 0, 1280, 720, p);
-        // The cover: 360 px square, rounded, with a soft shadow.
-        android.graphics.RectF box = new android.graphics.RectF(640 - 180, 360 - 180, 640 + 180, 360 + 180);
-        Paint sh2 = new Paint(Paint.ANTI_ALIAS_FLAG);
-        sh2.setColor(0xFF000000);
-        sh2.setShadowLayer(44, 0, 18, 0x99000000);
-        c.drawRoundRect(box, 28, 28, sh2);
-        android.graphics.Path clip = new android.graphics.Path();
-        clip.addRoundRect(box, 28, 28, android.graphics.Path.Direction.CW);
-        c.save();
-        c.clipPath(clip);
-        float side = Math.min(src.getWidth(), src.getHeight());
-        android.graphics.Rect from = new android.graphics.Rect((int) ((src.getWidth() - side) / 2), (int) ((src.getHeight() - side) / 2),
-                (int) ((src.getWidth() + side) / 2), (int) ((src.getHeight() + side) / 2));
-        c.drawBitmap(src, from, box, p);
-        c.restore();
+        if (wide != null) {
+            // The app's own wide picture fills the card, sharp (cut to 16:9 from the middle).
+            int ww = wide.getWidth(), wh = wide.getHeight();
+            int cropW = ww, cropH = Math.round(ww * 9f / 16f);
+            if (cropH > wh) {
+                cropH = wh;
+                cropW = Math.round(wh * 16f / 9f);
+            }
+            android.graphics.Rect from = new android.graphics.Rect((ww - cropW) / 2, (wh - cropH) / 2, (ww + cropW) / 2, (wh + cropH) / 2);
+            c.drawBitmap(wide, from, new android.graphics.RectF(0, 0, 1280, 720), p);
+            wide.recycle();
+            p.setColor(Brand.ink(0x2E));
+            c.drawRect(0, 0, 1280, 720, p);
+        } else {
+            // No wide picture: the cover cut to 16:9 and truly blurred (box passes at 192 x 108), then stretched back: smooth.
+            int cw = src.getWidth(), ch = src.getHeight();
+            int stripH = Math.max(1, Math.min(ch, Math.round(cw * 9f / 16f)));
+            Bitmap crop = Bitmap.createBitmap(src, 0, (ch - stripH) / 2, cw, stripH);
+            Bitmap soft = Backdrop.blurred(crop);
+            c.drawBitmap(soft, null, new android.graphics.RectF(0, 0, 1280, 720), p);
+            soft.recycle();
+            if (crop != src) crop.recycle();
+            p.setColor(Brand.ink(0x66));
+            c.drawRect(0, 0, 1280, 720, p);
+        }
+        // The cover, cut square from its middle and saved by itself (at its own size, up to 640 px).
+        int side = Math.min(src.getWidth(), src.getHeight());
+        Bitmap square = Bitmap.createBitmap(src, (src.getWidth() - side) / 2, (src.getHeight() - side) / 2, side, side);
+        try (FileOutputStream fo = new FileOutputStream(coverTo)) {
+            square.compress(Bitmap.CompressFormat.JPEG, 95, fo);
+        }
+        if (square != src) square.recycle();
         src.recycle();
         return save(out, file);
     }
@@ -443,7 +479,9 @@ final class Watched {
             p.label = e.appLabel;
             p.detailed = true;
             p.local = artFile(e);
+            if (e.kind.equals("music") && coverFile(e).exists()) p.cover = coverFile(e);
             p.progress = e.dur > 0 ? Math.max(0.02f, Math.min(1f, e.pos / (float) e.dur)) : -1;
+            p.remain = e.dur > 0 && !e.kind.equals("music") ? duration(Math.max(0, e.dur - e.pos)) : null;
             if (e.kind.equals("music")) {
                 NowPlaying np = NowPlaying.get();
                 p.music = true;
@@ -554,6 +592,10 @@ final class Watched {
         return d;
     }
 
+    private File coverFile(Entry e) {
+        return new File(dir(), Integer.toHexString(e.key.hashCode()) + ".cover.jpg");
+    }
+
     private File artFile(Entry e) {
         return new File(dir(), Integer.toHexString(e.key.hashCode()) + ".jpg");
     }
@@ -561,6 +603,7 @@ final class Watched {
     private void deleteArt(Entry e) {
         //noinspection ResultOfMethodCallIgnored
         artFile(e).delete();
+        coverFile(e).delete();
     }
 
     /** Saves the app's own picture or, failing that, the title's photo from TMDB, or the app's logo on a dark card. */
@@ -609,6 +652,8 @@ final class Watched {
         try {
             InputStream in;
             HttpURLConnection c = null;
+            if (uri.startsWith("spotify:image:")) uri = "https://i.scdn.co/image/" + uri.substring("spotify:image:".length());   // Spotify's own picture address
+            else if (uri.startsWith("http://")) uri = "https://" + uri.substring("http://".length());
             if (uri.startsWith("https://")) {
                 c = (HttpURLConnection) new URL(uri).openConnection();
                 c.setConnectTimeout(6000);
@@ -626,6 +671,7 @@ final class Watched {
                 if (c != null) c.disconnect();
             }
         } catch (Exception ex) {
+            AppLog.w("picture not loaded (" + (uri.length() > 60 ? uri.substring(0, 60) : uri) + "): " + ex);
             return null;
         }
     }

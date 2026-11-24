@@ -42,8 +42,16 @@ final class PlaceScreen extends View {
     private TextPaint bodyP;
     private float paintK;
 
+    private ScreenTransition.Run run;   // the default transition over the screen it opened from
+    private boolean completed;
+
     PlaceScreen(Context c, Done onClose) {
+        this(c, onClose, null);
+    }
+
+    PlaceScreen(Context c, Done onClose, Bitmap[] caps) {
         super(c);
+        if (caps != null) run = new ScreenTransition.Run(caps, ScreenTransition.VEIL);
         this.onClose = onClose;
         click = new Click(c);
         form = new PlaceForm(c, this::invalidate);
@@ -62,6 +70,18 @@ final class PlaceScreen extends View {
         if (closed) return;
         closed = true;
         click.open();
+        if (run != null) {
+            run.exit(android.os.SystemClock.uptimeMillis());
+            invalidate();
+            postDelayed(this::completeClose, ScreenTransition.OUT_MS + 80);
+            return;
+        }
+        onClose.done();
+    }
+
+    private void completeClose() {
+        if (completed) return;
+        completed = true;
         onClose.done();
     }
 
@@ -76,6 +96,8 @@ final class PlaceScreen extends View {
         int code = e.getKeyCode();
         if (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN || code == KeyEvent.KEYCODE_VOLUME_MUTE) return false;
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+        if (closed) return true;   // it is going out
+        if (run != null && run.entering(android.os.SystemClock.uptimeMillis()) && code != KeyEvent.KEYCODE_BACK) return true;
         if (inForm && form.onKey(e)) {
             invalidate();
             return true;
@@ -143,17 +165,29 @@ final class PlaceScreen extends View {
         bpop[1].target = !inForm && btn == 1 ? 1 : 0;
         moving |= bpop[0].step(dt) | bpop[1].step(dt);
 
-        // The settings' own backdrop (the wallpaper blurred at 80% over the night black): the same picture as the screen behind, so nothing flashes.
-        fill.setShader(null);
-        fill.setColor(Brand.INK);
-        c.drawRect(0, 0, w, h, fill);
-        if (wall != null) {
-            box.set(0, 0, w, h);
-            photo.setAlpha(204);
-            c.drawBitmap(wall, null, box, photo);
+        float lift = 0;
+        if (run != null) {   // the screen it opened from, blurred; the content rises in over it
+            long ms = android.os.SystemClock.uptimeMillis();
+            run.drawBackdrop(c, w, h, ms);
+            a = run.content(ms);
+            lift = (1 - a) * 18 * k;
+            moving = true;
+            if (run.finished(ms)) completeClose();
+        } else {
+            // The settings' own backdrop (the wallpaper blurred at 80% over the night black): the same picture as the screen behind, so nothing flashes.
+            fill.setShader(null);
+            fill.setColor(Brand.INK);
+            c.drawRect(0, 0, w, h, fill);
+            if (wall != null) {
+                box.set(0, 0, w, h);
+                photo.setAlpha(204);
+                c.drawBitmap(wall, null, box, photo);
+            }
         }
 
         int layer = a < 0.999f ? c.saveLayerAlpha(0, 0, w, h, Math.round(255 * a)) : -1;
+        c.save();
+        c.translate(0, lift);
         float cx = w / 2f;
         c.drawText(Ui.tr("Localização do clima", "Weather location", "Ubicación del clima"), cx, 136 * k, titleP);
         String body = Ui.tr("Escolha o país e a cidade para ver o clima e a hora do pôr do sol do seu lugar.",
@@ -185,6 +219,7 @@ final class PlaceScreen extends View {
         drawButton(c, backRect, Ui.tr("Voltar", "Back", "Volver"), Ui.clamp(bpop[0].value), false, true);
         drawButton(c, saveRect, saveText, Ui.clamp(bpop[1].value), true, form.complete());
 
+        c.restore();
         if (layer >= 0) c.restoreToCount(layer);
         if (moving) postInvalidateOnAnimation();
     }

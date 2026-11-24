@@ -12,7 +12,7 @@ import android.view.View;
 import java.io.InputStream;
 
 /**
- * The welcome's background: the wallpaper in use, drifting slowly exactly like the home screen's (an oversized picture
+ * The welcome's background: its own picture (not the TV's wallpaper), drifting slowly exactly like the home screen's (an oversized picture
  * moved with a view transform, so nothing is redrawn). Drawn once; only its position changes every frame.
  */
 final class OnboardingBackdrop extends View {
@@ -36,13 +36,22 @@ final class OnboardingBackdrop extends View {
     OnboardingBackdrop(Context c) {
         super(c);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-        try (InputStream in = c.getAssets().open(Prefs.WALLPAPER_FILES[Prefs.wallpaper()])) {
+        wall = image(c);
+    }
+
+    private static Bitmap cached;
+
+    /** The welcome's own background (assets/onboarding.jpg, the one in the design), the same on every TV whatever wallpaper is chosen. */
+    static Bitmap image(Context c) {
+        if (cached != null) return cached;
+        try (InputStream in = c.getAssets().open("onboarding.jpg")) {
             BitmapFactory.Options o = new BitmapFactory.Options();
             o.inSampleSize = 2;
-            wall = BitmapFactory.decodeStream(in, null, o);
+            cached = BitmapFactory.decodeStream(in, null, o);
         } catch (Exception | OutOfMemoryError ignored) {
-            wall = null;
+            cached = null;
         }
+        return cached;
     }
 
     @Override protected void onAttachedToWindow() {

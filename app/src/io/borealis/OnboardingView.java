@@ -2,9 +2,11 @@ package io.borealis;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.RadialGradient;
 import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.RectF;
@@ -35,7 +37,7 @@ final class OnboardingView extends View {
     /** `welcome` is true when the person finished it (the opening for new people plays), false when they skipped it. */
     interface Done { void done(boolean welcome); }
 
-    private static final int S_WELCOME = 0, S_LANG = 1, S_NAME = 2, S_HOME = 3, S_PERM = 4, S_DONE = 5, S_SHELF = 6, S_PLACE = 7;
+    private static final int S_WELCOME = 0, S_LANG = 1, S_NAME = 2, S_HOME = 3, S_PERM = 4, S_DONE = 5, S_PLACE = 7, S_PREP = 8, S_READY = 9, S_TOUR = 10;
     private static boolean langChosen;    // nothing is selected on the language screen until the person picks
     private static boolean homeChosen;   // nothing is selected on "what do you want to see first" until the person picks
     private static int savedStep;   // the step's id; survives the activity being rebuilt (a language change, a system screen)
@@ -68,7 +70,7 @@ final class OnboardingView extends View {
     // MARK: - Elements
 
     private static final int ROW = 0, LANGUAGE = 1, AVATAR = 2, OPTION = 3, SWITCH = 4, BTN = 5, PRIMARY = 6, LINK = 7, EDIT = 8;
-    private static final int BUTTON_ROW = 9, LINK_ROW = 10, FORM = 11;
+    private static final int BUTTON_ROW = 9, LINK_ROW = 10, FORM = 11, FIELD = 12;
 
     private static final class El {
         int kind, row, idx;
@@ -79,12 +81,12 @@ final class OnboardingView extends View {
     }
 
     // Design space (1920 x 1080): the panel and its parts.
-    private static final float MX = 240, MY = 100, MW = 1440, MH = 880, RADIUS = 28;
-    private static final float BUTTONS_Y = MY + 740, BUTTON_H = 62, LINK_Y = MY + 818, LINK_H = 44;
+    private static final float MX = 240, MY = 84, MW = 1440, MH = 912, RADIUS = 28;
+    private static final float BUTTONS_Y = MY + 723, BUTTON_H = 78, LINK_Y = MY + 835, LINK_H = 44;
     private static final String[] LANGS = {"es", "en", "pt", "auto"};
 
     private final Done done;
-    private final ShelfDemo shelfDemo = new ShelfDemo();
+    private final TourDemo tourDemo = new TourDemo();
     private final PlaceWidget placeWidget = new PlaceWidget();
     private final PlaceForm form;
     private float frameDt = 1 / 60f;
@@ -103,6 +105,8 @@ final class OnboardingView extends View {
     private boolean showFocus = true;   // on the name step the focus stays hidden until the first key
     private int lastCyc = -1, lastPv = -1;
     private float tf = 1;   // alpha of the texts that change language
+    private long stepAt;   // when the current step began (the welcome's logo animates from here)
+    private boolean reducedMotion;   // animations turned off: the logo only fades in
     private static boolean avatarRolled;
     private boolean cycling = true;   // the greeting keeps changing language until one is picked
 
@@ -151,8 +155,9 @@ final class OnboardingView extends View {
             @Override public void click(int id) { if (id >= 1 && id <= els.size()) { focus = id - 1; activate(); } }
         });
         spoken.setTitle(() -> confirm ? T("Borealis, pular as boas-vindas?", "Borealis, skip the welcome?", "Borealis, ¿saltar la bienvenida?")
-                : T("Borealis, boas-vindas. Passo ", "Borealis, welcome. Step ", "Borealis, bienvenida. Paso ") + (step + 1)
-                + T(" de ", " of ") + flow().length + ": " + stepName(stepId()) + ".");
+                : stepId() == S_PREP ? "Borealis, " + stepName(stepId()) + "."
+                : T("Borealis, boas-vindas. ", "Borealis, welcome. ", "Borealis, bienvenida. ") + stepCount() + ": " + stepName(stepId()) + ".");
+        loadMiniWall();
         enterStep(0);
     }
 
@@ -185,10 +190,34 @@ final class OnboardingView extends View {
 
     /** The steps in order: the notification access is only asked when "Continue watching" was chosen. */
     private int[] flow() {
-        return !homeChosen || Prefs.cardsMode().equals("recent") ? new int[] {S_WELCOME, S_LANG, S_NAME, S_PLACE, S_HOME, S_PERM, S_SHELF, S_DONE} : new int[] {S_WELCOME, S_LANG, S_NAME, S_PLACE, S_HOME, S_SHELF, S_DONE};
+        return !homeChosen || Prefs.cardsMode().equals("recent") ? new int[] {S_WELCOME, S_LANG, S_NAME, S_PLACE, S_HOME, S_PERM, S_PREP, S_DONE}
+                : new int[] {S_WELCOME, S_LANG, S_NAME, S_PLACE, S_HOME, S_PREP, S_DONE};
+    }
+
+    /** The steps that show progress dots: "Preparing your TV" and "Get to know Borealis" have their own look and no dots. */
+    private int[] dotSteps() {
+        int[] f = flow(), out = new int[f.length];
+        int n = 0;
+        for (int s : f) if (s != S_PREP) out[n++] = s;
+        return java.util.Arrays.copyOf(out, n);
+    }
+
+    /** Position among the dots, or -1 when this step has none. */
+    private int dotPos() {
+        int id = stepId();
+        if (id == S_PREP) return -1;
+        int[] d = dotSteps();
+        for (int i = 0; i < d.length; i++) if (d[i] == id) return i;
+        return 0;
+    }
+
+    private String stepCount() {
+        int p = dotPos();
+        return p < 0 ? "" : T("Passo ", "Step ", "Paso ") + (p + 1) + T(" de ", " of ") + dotSteps().length;
     }
 
     private int indexOf(int id) {
+        if (id == S_READY || id == S_TOUR) id = S_DONE;   // the old steps (a saved position) end at the support step
         int[] f = flow();
         for (int i = 0; i < f.length; i++) if (f[i] == id) return i;
         return 0;
@@ -207,8 +236,10 @@ final class OnboardingView extends View {
             case S_PLACE: return T("Cidade", "City", "Ciudad");
             case S_HOME: return T("Tela inicial", "Home screen", "Pantalla de inicio");
             case S_PERM: return T("Permissão", "Permission", "Permiso");
-            case S_SHELF: return T("Estante", "Shelf", "Estante");
-            default: return T("Pronto", "Done", "Listo");
+            case S_PREP: return T("Preparando a sua TV", "Preparing your TV", "Preparando tu TV");
+            case S_READY: return T("Sua TV está pronta", "Your TV is ready", "Tu TV está lista");
+            case S_TOUR: return T("Conheça o Borealis", "Get to know Borealis", "Conoce Borealis");
+            default: return T("Apoio", "Support", "Apoyo");
         }
     }
 
@@ -252,53 +283,81 @@ final class OnboardingView extends View {
 
     private String stepTitle() {
         if (confirm && warnPerm) return T("Sem este acesso não há “Continuar assistindo”", "Without this access there is no “Continue watching”", "Sin este acceso no hay “Continuar viendo”");
-        if (confirm) return T("Tem certeza de que quer pular?", "Are you sure you want to skip?", "¿Seguro que quieres saltar?");
+        if (confirm) return T("Deixamos para depois?", "Shall we leave it for later?", "¿Lo dejamos para después?");
         switch (stepId()) {
             case S_WELCOME: return T("Damos as boas-vindas a você", "We welcome you", "Te damos la bienvenida");
-            case S_LANG: return T("Em que idioma você se sente mais à vontade?", "Which language feels most like home?", "¿En qué idioma te sientes más cómodo?");
+            case S_LANG: return T("Em que idioma você se sente em casa?", "Which language feels like home?", "¿En qué idioma te sientes como en casa?");
             case S_NAME: return pickingAvatar ? T("Escolha seu avatar", "Choose your avatar", "Elige tu avatar")
                     : T("Como você quer que eu te chame?", "What should we call you?", "¿Cómo quieres que te llame?");
             case S_PLACE: return T("De que cidade você quer o clima?", "Which city do you want the weather for?", "¿De qué ciudad quieres el clima?");
             case S_HOME: return T("O que você quer ver primeiro?", "What do you want to see first?", "¿Qué quieres ver primero?");
             case S_PERM: return T("Para continuar de onde você parou", "To pick up where you left off", "Para continuar donde lo dejaste");
-            case S_SHELF: return T("Personalize o seu estante", "Make the shelf yours", "Personaliza tu estante");
-            default: {
-                String n = Prefs.name();
-                return n.isEmpty() ? T("Tudo pronto", "All set", "Todo listo") : T("Tudo pronto, ", "All set, ", "Todo listo, ") + n;
-            }
+            case S_PREP: return T("Preparando a sua TV", "Preparing your TV", "Preparando tu TV");
+            case S_READY: return T("Sua TV está pronta.", "Your TV is ready.", "Tu TV está lista.");
+            case S_TOUR: return tourTitle(tour);
+            default: return T("Apoie o Borealis", "Support Borealis", "Apoya a Borealis");
         }
     }
 
     private String stepBody() {
-        if (confirm && warnPerm) return T("Sem o acesso às notificações o Borealis não consegue mostrar o que você deixou pela metade. Se continuar, ativamos o modo Recomendações; você pode mudar quando quiser em Configurações.",
+        if (confirm && warnPerm) return T("Sem o acesso às notificações o Borealis não consegue mostrar o que você deixou pela metade. Se continuar, ativamos o modo Recomendações; você pode mudar quando quiser em Ajustes.",
                 "Without notification access Borealis can't show what you left half-watched. If you go on, we'll turn on Recommendations mode; you can change it any time in Settings.",
-                "Sin el acceso a las notificaciones Borealis no puede mostrarte lo que dejaste a medias. Si sigues, activamos el modo Recomendaciones; puedes cambiarlo cuando quieras en Configuración.");
-        if (confirm) return T("Você poderá usar a sua TV normalmente, mas a tela inicial ficará com a configuração padrão e “Continuar assistindo” só funcionará quando você ativá-lo em Configurações. "
-                        + "Dá para ver estas boas-vindas de novo em Configurações > Preferências.",
-                "You can use your TV as usual, but the home screen will keep its default setup and “Continue watching” will only work once you turn it on in Settings. "
-                        + "You can see this welcome again in Settings > Preferences.",
-                "Podrás usar tu TV con normalidad, pero la pantalla de inicio quedará con la configuración por defecto y “Continuar viendo” solo funcionará cuando lo actives en Configuración. "
-                        + "Puedes volver a ver esta bienvenida en Configuración > Preferencias.");
+                "Sin el acceso a las notificaciones Borealis no puede mostrarte lo que dejaste a medias. Si sigues, activamos el modo Recomendaciones; puedes cambiarlo cuando quieras en Ajustes.");
+        if (confirm) return T("A sua TV funciona igual. Isto ficará como vem de fábrica até você mudar:",
+                "Your TV works the same. This will stay as it comes from the factory until you change it:",
+                "Tu TV funciona igual. Esto quedará como viene de fábrica hasta que lo cambies:");
         switch (stepId()) {
             case S_WELCOME: return T("Um launcher leve e bonito para a sua TV.", "A light, beautiful launcher for your TV.", "Un launcher ligero y bonito para tu TV.");
-            case S_LANG: return T("Escolha o idioma do Borealis. Dá para mudar depois em Configurações.", "Choose Borealis's language. You can change it later in Settings.", "Elige el idioma de Borealis. Puedes cambiarlo después en Configuración.");
+            case S_LANG: return T("Escolha o idioma do Borealis. Dá para mudar depois em Ajustes.", "Choose Borealis's language. You can change it later in Settings.", "Elige el idioma de Borealis. Puedes cambiarlo después en Ajustes.");
             case S_NAME: return pickingAvatar ? T("Escolha o que mais combina com você.", "Pick the one that suits you.", "Elige el que más vaya contigo.")
-                    : T("Você pode mudar isso depois em Configurações.", "You can change this later in Settings.", "Puedes cambiarlo después en Configuración.");
+                    : T("Você pode mudar isso depois em Ajustes › Meu perfil.", "You can change this later in Settings › My profile.", "Puedes cambiarlo después en Ajustes › Mi perfil.");
             case S_PLACE: return T("Escolha o país e a cidade para ver o clima e o pôr do sol do seu lugar. Dá para mudar depois em Ajustes.",
                     "Pick your country and city to see the weather and sunset of your place. You can change it later in Settings.",
                     "Elige tu país y tu ciudad para ver el clima y el atardecer de tu lugar. Puedes cambiarlo después en Ajustes.");
-            case S_HOME: return T("Escolha como será a sua tela inicial. Dá para mudar quando quiser em Configurações.",
+            case S_HOME: return T("Escolha como será a sua tela inicial. Dá para mudar quando quiser em Ajustes.",
                     "Choose how your home screen will look. You can change it any time in Settings.",
-                    "Elige cómo se verá tu pantalla de inicio. Puedes cambiarlo cuando quieras en Configuración.");
+                    "Elige cómo se verá tu pantalla de inicio. Puedes cambiarlo cuando quieras en Ajustes.");
             case S_PERM: return T("O Borealis precisa saber qual app você está usando para mostrar o que ficou pela metade. Ele não vê o conteúdo e nada sai da sua TV.",
                     "Borealis needs to know which app you are using to show what you left half-watched. It doesn't see the content and nothing leaves your TV.",
                     "Borealis necesita saber qué app estás usando para mostrarte lo que dejaste a medias. No ve el contenido y nada sale de tu TV.");
-            case S_SHELF: return T("Segure OK sobre um app do estante para movê-lo, removê-lo ou ocultá-lo. Os apps ocultos ficam no fim de Todos os apps, e de lá você pode mostrá-los de novo.",
-                    "Hold OK on a shelf app to move it, remove it or hide it. Hidden apps wait at the end of All apps, and you can bring them back from there.",
-                    "Mantén OK sobre una app del estante para moverla, quitarla u ocultarla. Las apps ocultas quedan al final de Todas las apps y desde ahí puedes volver a mostrarlas.");
-            default: return T("Você pode ajustar o que quiser em Configurações, como o botão de ajustes do controle e o som de abertura.",
-                    "You can adjust anything in Settings, like the remote's settings button and the startup sound.",
-                    "Puedes ajustar lo que quieras en Configuración, como el botón de ajustes del control y el sonido de inicio.");
+            case S_PREP: return T("Estamos aplicando o que você escolheu.", "We are applying what you chose.", "Estamos aplicando lo que elegiste.");
+            case S_READY: return T("Agora, o melhor.", "Now, the best part.", "Ahora, lo mejor.");
+            case S_TOUR: return tourBody(tour);
+            default: return T("O Borealis é grátis e feito por uma só pessoa. Se você gosta, pode ajudar.",
+                    "Borealis is free and made by one person. If you like it, you can help.",
+                    "Borealis es gratis y lo hace una sola persona. Si te gusta, puedes ayudar.");
+        }
+    }
+
+    private boolean recsMode() { return !Prefs.cardsMode().equals("recent"); }
+
+    private String tourTitle(int i) {
+        switch (i) {
+            case 0: return T("Seus apps, à mão", "Your apps, at hand", "Tus apps, a la mano");
+            case 1: return T("Do seu jeito", "Made to measure", "A tu medida");
+            case 2: return recsMode() ? T("Descubra o que assistir", "Discover what to watch", "Descubre qué ver")
+                    : T("Retome de onde parou", "Pick up where you left off", "Retoma donde ibas");
+            default: return T("Sua TV, sob uma nova luz", "Your TV, in a new light", "Tu TV, bajo una nueva luz");
+        }
+    }
+
+    private String tourBody(int i) {
+        switch (i) {
+            case 0: return T("Com o “+” você fixa seus favoritos no início. Segure “OK” sobre um para movê-lo.",
+                    "With the “+” you pin your favorites on the home screen. Hold “OK” on one to move it.",
+                    "Con el “+” fijas tus favoritas en el inicio. Mantén “OK” sobre una para moverla.");
+            case 1: return T("Escolha quantos apps ver e a forma deles: ampla, equilibrada ou compacta. Em Ajustes › Tela principal.",
+                    "Choose how many apps you see and their shape: wide, balanced or compact. In Settings › Home screen.",
+                    "Elige cuántas apps ves y su forma: amplia, equilibrada o compacta. En Ajustes › Pantalla principal.");
+            case 2: return recsMode() ? T("O Borealis sugere filmes e séries dos serviços que você tem, sem contas nem cadastros.",
+                    "Borealis suggests movies and shows from the services you have, with no accounts or sign-ups.",
+                    "Borealis te sugiere películas y series de los servicios que tienes, sin cuentas ni registros.")
+                    : T("O Borealis mostra o que você deixou pela metade para continuar com “OK”, sem procurar.",
+                    "Borealis shows what you left half-watched so you can go on with “OK”, no searching.",
+                    "Borealis te muestra lo que dejaste a medias para que sigas con “OK”, sin buscarlo.");
+            default: return T("Fundos e protetores de tela pensados para a sua sala. Mude em Ajustes › Aparência.",
+                    "Wallpapers and screensavers made for your living room. Change them in Settings › Appearance.",
+                    "Fondos y protectores de pantalla pensados para tu sala. Cámbialos en Ajustes › Apariencia.");
         }
     }
 
@@ -306,14 +365,8 @@ final class OnboardingView extends View {
         return i == 0 ? "Español" : i == 1 ? "English" : i == 2 ? "Português" : T("Automático", "Automatic", "Automático");
     }
 
-    private String languageName() {
-        String l = Prefs.language();
-        for (int i = 0; i < LANGS.length; i++) if (LANGS[i].equals(l)) return languageLabel(i);
-        return languageLabel(3);
-    }
-
     private String nameValue() {
-        return Prefs.name().isEmpty() ? T("Toque OK para escrever", "Press OK to type", "Pulsa OK para escribir") : Prefs.name();
+        return Prefs.name().isEmpty() ? T("Aperte “OK” para escrever", "Press “OK” to type", "Pulsa “OK” para escribir") : Prefs.name();
     }
 
     private boolean playbackOn() {
@@ -350,15 +403,16 @@ final class OnboardingView extends View {
         els.clear();
         float cx = MX + MW / 2;
         if (confirm) {
-            El stay = button(PRIMARY, warnPerm ? T("Ativar o acesso", "Turn on access", "Activar el acceso") : T("Continuar configurando", "Keep setting up", "Seguir configurando"), 360,
+            El stay = button(PRIMARY, warnPerm ? T("Ativar o acesso", "Turn on access", "Activar el acceso") : T("Continuar configurando", "Keep setting up", "Seguir configurando"), warnPerm ? 360 : 390,
                     warnPerm ? this::warnActivate : this::cancelSkip);
-            El leave = button(BTN, warnPerm ? T("Seguir com Recomendações", "Go on with Recommendations", "Seguir con Recomendaciones") : T("Pular mesmo assim", "Skip anyway", "Saltar de todos modos"), 360,
+            El leave = button(BTN, warnPerm ? T("Seguir com Recomendações", "Go on with Recommendations", "Seguir con Recomendaciones") : T("Pular", "Skip", "Saltar"), warnPerm ? 360 : 330,
                     warnPerm ? this::warnRecommendations : this::skipNow);
             placeButtons(leave, stay);
             if (focus >= els.size()) focus = els.size() - 1;
             return;
         }
         int id = stepId();
+        if (id == S_PREP) return;   // no buttons: it moves on by itself
         boolean picking = id == S_NAME && pickingAvatar;
         if (id == S_LANG) {
             float cw = 280, gap = 24, x = cx - (4 * cw + 3 * gap) / 2;
@@ -370,7 +424,7 @@ final class OnboardingView extends View {
                 e.row = 0;
                 e.idx = i;
                 e.label = languageLabel(i);
-                e.selected = langChosen && LANGS[i].equals(cur);
+                e.selected = LANGS[i].equals(cur);
                 e.spoken = e.label + (i == 3 ? ", " + T("o idioma da TV", "the TV's language", "el idioma de la TV") : "")
                         + (e.selected ? ", " + T("selecionado", "selected", "seleccionado") : "");
                 final int which = i;
@@ -395,14 +449,6 @@ final class OnboardingView extends View {
                 e.r.set(x * k, y * k, (x + d) * k, (y + d) * k);
                 els.add(e);
             }
-            El cancel = new El();
-            cancel.kind = LINK;
-            cancel.row = LINK_ROW;
-            cancel.label = T("Cancelar", "Cancel", "Cancelar");
-            cancel.spoken = cancel.label;
-            cancel.r.set((cx - 90) * k, (MY + 700) * k, (cx + 90) * k, (MY + 700 + LINK_H) * k);
-            cancel.act = this::closePicker;
-            els.add(cancel);
             if (focus >= els.size()) focus = els.size() - 1;
             return;
         } else if (id == S_NAME) {
@@ -413,15 +459,15 @@ final class OnboardingView extends View {
             int ai = java.util.Arrays.asList(Avatars.IDS).indexOf(edit.label);
             edit.spoken = T("Seu avatar: ", "Your avatar: ", "Tu avatar: ") + (ai >= 0 ? avatarName(ai) : "") + ". " + T("Aperte OK para mudar.", "Press OK to change it.", "Presiona OK para cambiarlo.");
             edit.act = this::openPicker;
-            edit.r.set((cx - 80) * k, (MY + 262) * k, (cx + 80) * k, (MY + 422) * k);   // the avatar, with the name under it
+            edit.r.set((cx - 96) * k, (MY + 225) * k, (cx + 96) * k, (MY + 417) * k);   // the avatar (192), with the field under it
             els.add(edit);
             El name = new El();
-            name.kind = ROW;
+            name.kind = FIELD;
             name.row = 1;
             name.label = T("Seu nome", "Your name", "Tu nombre");
             name.value = nameValue();
             name.spoken = name.label + ", " + name.value;
-            name.r.set((cx - 380) * k, (MY + 486) * k, (cx + 380) * k, (MY + 570) * k);
+            name.r.set((cx - 330) * k, (MY + 491) * k, (cx + 330) * k, (MY + 587) * k);
             name.act = this::askName;
             els.add(name);
         } else if (id == S_PLACE) {
@@ -430,7 +476,7 @@ final class OnboardingView extends View {
             place.row = 0;
             place.label = T("País e cidade", "Country and city", "País y ciudad");
             place.spoken = place.label + ". " + T("Aperte OK para escolher.", "Press OK to choose.", "Pulsa OK para elegir.");
-            place.r.set((cx - PlaceForm.W / 2) * k, (MY + 495) * k, (cx + PlaceForm.W / 2) * k, (MY + 495 + PlaceForm.HEIGHT) * k);
+            place.r.set((cx - PlaceForm.OW / 2) * k, (MY + 501) * k, (cx + PlaceForm.OW / 2) * k, (MY + 501 + PlaceForm.OHEIGHT) * k);
             els.add(place);
         } else if (id == S_HOME) {
             float cw = 600, gap = 40, x = cx - (2 * cw + gap) / 2;
@@ -465,47 +511,49 @@ final class OnboardingView extends View {
             els.add(sw);
         }
         // The buttons (the same width), centered in the panel; "Skip" as a link under them.
-        boolean last = id == S_DONE;
-        float bw = last ? 320 : 280;
-        El primary = button(PRIMARY, id == S_WELCOME ? T("Começar", "Get started", "Empezar")
-                : last ? T("Começar a usar", "Start using Borealis", "Empezar a usar") : T("Seguinte", "Next", "Siguiente"),
-                bw, last ? this::complete : this::next);
+        boolean last = false;   // the support step is the last one, but it has Back, Next and Skip like the rest
+        float bw = 279;
+        El primary = button(PRIMARY, id == S_WELCOME ? T("Começar", "Get started", "Empezar") : T("Seguinte", "Next", "Siguiente"),
+                id == S_WELCOME ? 330 : bw, id == S_WELCOME ? 84 : BUTTON_H, id == S_DONE ? this::complete : this::next);
         if (id == S_NAME && Prefs.name().isEmpty()) {
             primary.enabled = false;
             primary.spoken = primary.label + ", " + T("desativado. Escreva seu nome para continuar.", "disabled. Type your name to continue.",
                     "desactivado. Escribe tu nombre para continuar.");
-        } else if (id == S_LANG && !langChosen) {
-            primary.enabled = false;
-            primary.spoken = primary.label + ", " + T("desativado. Escolha um idioma para continuar.", "disabled. Pick a language to continue.",
-                    "desactivado. Elige un idioma para continuar.");
         } else if (id == S_HOME && !homeChosen) {
             primary.enabled = false;
             primary.spoken = primary.label + ", " + T("desativado. Escolha uma opção para continuar.", "disabled. Pick an option to continue.",
                     "desactivado. Elige una opción para continuar.");
         }
-        El back = step > 0 ? button(BTN, T("Voltar", "Back", "Atrás"), bw, this::previous) : null;
+        El back = step > 0 ? button(BTN, T("Voltar", "Back", "Atrás"), bw, BUTTON_H, this::previous) : null;
         placeButtons(back, primary);
         if (!last) {
             El skip = new El();
             skip.kind = LINK;
             skip.row = LINK_ROW;
-            skip.label = T("Pular", "Skip", "Saltar");
-            skip.spoken = skip.label + ", " + T("fecha as boas-vindas", "closes the welcome", "cierra la bienvenida");
-            skip.r.set((cx - 90) * k, LINK_Y * k, (cx + 90) * k, (LINK_Y + LINK_H) * k);
-            skip.act = this::askSkip;
+            boolean tourSkip = id == S_TOUR;
+            skip.label = tourSkip ? T("Pular passeio", "Skip the tour", "Saltar recorrido") : T("Pular", "Skip", "Saltar");
+            skip.spoken = skip.label + ", " + (tourSkip ? T("vai para o apoio", "goes to the support step", "va al paso de apoyo")
+                    : T("fecha as boas-vindas", "closes the welcome", "cierra la bienvenida"));
+            float sw2 = tourSkip ? 150 : 90;
+            skip.r.set((cx - sw2) * k, LINK_Y * k, (cx + sw2) * k, (LINK_Y + LINK_H) * k);
+            skip.act = tourSkip ? this::skipTour : this::askSkip;
             els.add(skip);
         }
         if (focus >= els.size()) focus = els.size() - 1;
     }
 
     private El button(int kind, String text, float width, Runnable act) {
+        return button(kind, text, width, BUTTON_H, act);
+    }
+
+    private El button(int kind, String text, float width, float height, Runnable act) {
         El e = new El();
         e.kind = kind;
         e.row = BUTTON_ROW;
         e.label = text;
         e.spoken = text;
         e.act = act;
-        e.r.set(0, BUTTONS_Y * k, width * k, (BUTTONS_Y + BUTTON_H) * k);   // placed (centered) by placeButtons
+        e.r.set(0, (BUTTONS_Y + BUTTON_H / 2 - height / 2) * k, width * k, (BUTTONS_Y + BUTTON_H / 2 + height / 2) * k);   // placed (centered) by placeButtons
         return e;
     }
 
@@ -514,13 +562,13 @@ final class OnboardingView extends View {
         float gap = 20, total = second.r.width() / k + (first == null ? 0 : first.r.width() / k + gap);
         float x = MX + MW / 2 - total / 2;
         if (first != null) {
-            float fw = first.r.width() / k;
-            first.r.set(x * k, BUTTONS_Y * k, (x + fw) * k, (BUTTONS_Y + BUTTON_H) * k);
+            float fw = first.r.width() / k, fh = first.r.height() / k;
+            first.r.set(x * k, (BUTTONS_Y + BUTTON_H / 2 - fh / 2) * k, (x + fw) * k, (BUTTONS_Y + BUTTON_H / 2 + fh / 2) * k);
             els.add(first);
             x += fw + gap;
         }
-        float sw = second.r.width() / k;
-        second.r.set(x * k, BUTTONS_Y * k, (x + sw) * k, (BUTTONS_Y + BUTTON_H) * k);
+        float sw = second.r.width() / k, sh = second.r.height() / k;
+        second.r.set(x * k, (BUTTONS_Y + BUTTON_H / 2 - sh / 2) * k, (x + sw) * k, (BUTTONS_Y + BUTTON_H / 2 + sh / 2) * k);
         els.add(second);
     }
 
@@ -528,6 +576,8 @@ final class OnboardingView extends View {
 
     private void enterStep(int dir) {
         enterDir = dir;
+        stepAt = SystemClock.uptimeMillis();
+        reducedMotion = Logo.reducedMotion(getContext());
         savedStep = stepId();
         built = false;
         if (stepId() == S_NAME) {
@@ -538,6 +588,7 @@ final class OnboardingView extends View {
             Avatars.preload(getContext());
         }
         if (stepId() == S_PERM && playbackOn()) permWasOn = true;
+        if (stepId() == S_PREP) startPrep();
         ensureLayout();
         showFocus = confirm || stepId() != S_NAME || pickingAvatar || dir < 0;
         // The name goes first on its step; lists start on what is selected; the last step and the warnings on the main button.
@@ -547,8 +598,10 @@ final class OnboardingView extends View {
             else for (int i = 0; i < els.size() && focus < 0; i++) if (els.get(i).selected && els.get(i).kind != SWITCH) focus = i;
             if (focus < 0) focus = 0;
         }
-        if (focus < 0 || (els.get(focus).kind == BTN || els.get(focus).kind == LINK)) focus = primaryIndex();
-        intro = stepTitle() + ". " + stepBody() + (confirm ? "" : " " + T("Passo ", "Step ", "Paso ") + (step + 1) + T(" de ", " of ") + flow().length + ".");
+        if (els.isEmpty()) focus = -1;
+        else if (focus < 0 || (els.get(focus).kind == BTN || els.get(focus).kind == LINK)) focus = primaryIndex();
+        intro = stepId() == S_TOUR && !confirm ? tourIntro()
+                : stepTitle() + ". " + stepBody() + (confirm ? "" : " " + stepCount() + ".");
         enter.snap(0);
         enter.target = 1;
         for (Spring s : pop) s.snap(0);
@@ -564,10 +617,13 @@ final class OnboardingView extends View {
     }
 
     private void next() {
-        if (stepId() == S_LANG && !langChosen) return;
         if (stepId() == S_NAME && Prefs.name().isEmpty()) return;
         if (stepId() == S_HOME && !homeChosen) return;
-        if (stepId() == S_PLACE) form.save();   // only when both are chosen
+        if (stepId() == S_PLACE) {
+            form.save();   // only when both are chosen
+            HomeData.get(getContext()).settingsChanged();   // the weather of the chosen city is fetched while the person goes on
+            HomeData.get(getContext()).refreshIfStale();
+        }
         if (stepId() == S_PERM && !playbackOn()) {   // no access: say what that means before going on
             warnPerm = true;
             confirm = true;
@@ -579,7 +635,112 @@ final class OnboardingView extends View {
     }
 
     private void previous() {
-        if (step > 0) { step--; enterStep(-1); click.move(); }
+        int id = stepId();
+        if (id == S_PREP) return;   // nothing to go back to while the TV is being prepared
+        if (step > 0) {
+            step--;
+            if (stepId() == S_PREP) step--;   // back from the support step: the step before "Preparing your TV" (it is not shown again)
+            enterStep(-1);
+            click.move();
+        }
+    }
+
+    // MARK: - Preparing the TV and the tour (timed screens)
+
+    private long auto0, tourAt;      // when the timed screen began / when the current tour screen began
+    private int tour;                // 0..3
+    private volatile boolean prepDone;
+    private long prepEnd;   // when the bar filled and "Everything in its place" appeared (it stays 0.6 s)
+
+    private static boolean screenReaderOn(Context c) {
+        try {
+            android.view.accessibility.AccessibilityManager am = (android.view.accessibility.AccessibilityManager) c.getSystemService(Context.ACCESSIBILITY_SERVICE);
+            return am != null && !am.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_SPOKEN).isEmpty();
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /** What the welcome used to do at the end, now for real while "Preparing your TV" shows: the icons, the weather, the pictures, Borealis as the home. */
+    private void startPrep() {
+        auto0 = SystemClock.uptimeMillis();
+        prepDone = false;
+        prepEnd = 0;
+        final Context app = getContext().getApplicationContext();
+        final long began = System.currentTimeMillis();
+        new Thread(() -> {
+            try {
+                Backdrop.preparePanel(app);
+                HomeData data = HomeData.get(app);
+                data.refreshIfStale();
+                for (int i = 0; i < 60 && data.weatherAt < began; i++) {   // the weather of the city (6 s at most; no network just goes on)
+                    if (!data.isFetching()) break;
+                    Thread.sleep(100);
+                }
+            } catch (Exception | OutOfMemoryError ex) {
+                AppLog.w("preparing: " + ex);
+            }
+            handler.post(() -> {
+                turnOnBorealis();
+                prepDone = true;
+                Diag.event("onboarding prepared in " + (SystemClock.uptimeMillis() - auto0) + " ms");
+            });
+        }, "onboarding-prep").start();
+        announceForAccessibility(T("Preparando a sua TV", "Preparing your TV", "Preparando tu TV"));
+    }
+
+    /** Called on every frame: the timed screens move on by themselves. True while one of them is on. */
+    private boolean tickAuto() {
+        if (confirm) return false;
+        int id = stepId();
+        long now = SystemClock.uptimeMillis();
+        if (id == S_PREP) {
+            long t = now - auto0;
+            if (prepEnd == 0 && ((t >= 4200 && prepDone) || t >= 10000)) {
+                prepEnd = now;
+                announceForAccessibility(T("Tudo no lugar", "Everything in its place", "Todo en su lugar"));
+            }
+            if (prepEnd != 0 && now - prepEnd >= 600) { step++; enterStep(1); }
+            return true;
+        }
+        return false;
+    }
+
+    private void tourNext(boolean manual) {
+        if (tour < 3) {
+            tour++;
+            tourChanged();
+        } else {
+            step++;
+            enterStep(1);
+        }
+        if (manual) click.open();
+    }
+
+    private void tourPrev() {
+        if (tour == 0) return;
+        tour--;
+        tourChanged();
+        click.move();
+    }
+
+    private void tourChanged() {
+        tourAt = SystemClock.uptimeMillis();
+        built = false;
+        intro = tourIntro();
+        invalidate();
+        spoken.focusMoved();
+        spoken.readAgain();
+    }
+
+    private String tourIntro() {
+        return T("Conheça o Borealis, ", "Get to know Borealis, ", "Conoce Borealis, ") + (tour + 1) + T(" de 4. ", " of 4. ") + tourTitle(tour) + ". " + tourBody(tour);
+    }
+
+    private void skipTour() {
+        step = indexOf(S_DONE);
+        click.open();
+        enterStep(1);
     }
 
     private void askSkip() {
@@ -610,7 +771,7 @@ final class OnboardingView extends View {
         warnPerm = false;
         Prefs.setCardsMode("recs");
         homeChosen = true;
-        step = indexOf(S_DONE);
+        step = indexOf(S_PREP);
         click.open();
         enterStep(1);
     }
@@ -629,7 +790,6 @@ final class OnboardingView extends View {
 
     private void complete() {
         markDone(getContext());
-        turnOnBorealis();
         click.open();
         done.done(true);
     }
@@ -734,6 +894,13 @@ final class OnboardingView extends View {
             if (down && e.getRepeatCount() == 0) { showFocus = true; focus = 0; click.move(); invalidate(); spoken.focusMoved(); }
             return true;
         }
+        if (stepId() == S_TOUR && !confirm && (code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT)) {   // the tour: Right goes on, Left goes back
+            if (down && e.getRepeatCount() == 0) {
+                if (code == KeyEvent.KEYCODE_DPAD_RIGHT) tourNext(true);
+                else tourPrev();
+            }
+            return true;
+        }
         switch (code) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_DPAD_RIGHT:
@@ -813,9 +980,9 @@ final class OnboardingView extends View {
         if (paintK == k && title != null) return;
         paintK = k;
         layouts.clear();
-        title = Ui.text(Ui.displaySemibold, 52 * k, 0xFFFFFFFF);
+        title = Ui.text(Logo.wordmark(getContext()), 60 * k, 0xFFFFFFFF);   // Gloock, regular weight
         title.setTextAlign(Paint.Align.CENTER);
-        greet = Ui.text(Ui.displaySemibold, 70 * k, 0xFFFFFFFF);
+        greet = Ui.text(Logo.wordmark(getContext()), 66 * k, 0xFFFFFFFF);
         greet.setTextAlign(Paint.Align.CENTER);
         body = Ui.text(Ui.regular, 28 * k, 0xCCFFFFFF);
         label = Ui.text(Ui.medium, 30 * k, 0xFFFFFFFF);
@@ -826,11 +993,151 @@ final class OnboardingView extends View {
         hint = Ui.text(Ui.regular, 23 * k, 0xB3FFFFFF);
         button = Ui.text(Ui.medium, 27 * k, 0xFFFFFFFF);
         button.setTextAlign(Paint.Align.CENTER);
+        buttonB = Ui.text(Ui.bold, 27 * k, 0xFFFFFFFF);   // "Next": 700
+        buttonB.setTextAlign(Paint.Align.CENTER);
+        buttonS = Ui.text(Ui.semibold, 27 * k, 0xFFFFFFFF);   // "Back": 600
+        buttonS.setTextAlign(Paint.Align.CENTER);
         option = Ui.text(Ui.semibold, 32 * k, 0xFFFFFFFF);
         stepName = Ui.text(Ui.medium, 21 * k, 0xB3FFFFFF);
         stepName.setTextAlign(Paint.Align.CENTER);
         link = Ui.text(Ui.medium, 26 * k, 0xB3FFFFFF);
         link.setTextAlign(Paint.Align.CENTER);
+        prepTitle = Ui.text(Logo.wordmark(getContext()), 78 * k, 0xFFFFFFFF);
+        prepTitle.setTextAlign(Paint.Align.CENTER);
+        prepSub = Ui.text(Ui.medium, 30 * k, 0xD6FFFFFF);
+        prepSub.setTextAlign(Paint.Align.CENTER);
+        prepPhrase = Ui.text(Ui.semibold, 27 * k, 0xC7FFFFFF);
+        prepPhrase.setTextAlign(Paint.Align.CENTER);
+        tourLabel = Ui.text(Ui.bold, 19.5f * k, Brand.LILY);
+        tourLabel.setLetterSpacing(0.1f);
+        tourLabel.setTextAlign(Paint.Align.CENTER);
+        tourTitleP = Ui.text(Logo.wordmark(getContext()), 63 * k, 0xFFFFFFFF);
+        tourTitleP.setTextAlign(Paint.Align.CENTER);
+        tourBodyP = Ui.text(Ui.medium, 28.5f * k, 0xD6FFFFFF);
+    }
+
+    private Paint buttonB, buttonS;
+    private Paint prepTitle, prepSub, prepPhrase, tourLabel, tourTitleP, tourBodyP;
+    private android.view.animation.PathInterpolator appCurve;
+
+    private float curve(float x) {
+        if (appCurve == null) appCurve = ScreenTransition.curve();
+        return appCurve.getInterpolation(Ui.clamp(x));
+    }
+
+    /** The bar's pace: 0 → 42 % → 58 % → 100 %, each stretch eased, so it feels like work and not like a timer. */
+    private static float prepCurve(float u) {
+        float[] at = {0f, 0.3f, 0.6f, 1f}, to = {0f, 0.42f, 0.58f, 1f};
+        for (int i = 1; i < at.length; i++) {
+            if (u <= at[i]) {
+                float x = (u - at[i - 1]) / (at[i] - at[i - 1]);
+                x = x * x * (3 - 2 * x);
+                return to[i - 1] + (to[i] - to[i - 1]) * x;
+            }
+        }
+        return 1f;
+    }
+
+    private String prepPhrase(int i) {
+        String city = Prefs.city(), name = Prefs.name();
+        switch (i) {
+            case 0: return T("Organizando seus apps…", "Arranging your apps…", "Acomodando tus apps…");
+            case 1: return city.isEmpty() ? T("Buscando o clima da sua cidade…", "Fetching the weather for your city…", "Trayendo el clima de tu ciudad…")
+                    : T("Buscando o clima de " + city + "…", "Fetching the weather for " + city + "…", "Trayendo el clima de " + city + "…");
+            case 2: return name.isEmpty() ? T("Deixando tudo do seu jeito…", "Setting everything up your way…", "Dejando todo a tu gusto…")
+                    : T("Colocando seu nome na porta…", "Putting your name on the door…", "Poniendo tu nombre en la puerta…");
+            default: return T("Acendendo a aurora…", "Lighting up the aurora…", "Encendiendo la aurora…");
+        }
+    }
+
+    /** "Preparing your TV" and "Your TV is ready": no panel, the logo breathing, a bar and a line of text, centered on the screen. */
+    private void drawBare(Canvas c, int sid) {
+        long now = SystemClock.uptimeMillis(), t = now - auto0;
+        boolean ready = prepEnd != 0;
+        float cx = w / 2f, y0 = 225 * k;   // the design: the block starts 150 under the top (1280 x 720)
+        float ph = (now % 2600) / 2600f, breath = 0.875f + 0.125f * (float) Math.sin(ph * 2 * Math.PI);
+        float sc = 1 + 0.04f * ((breath - 0.75f) / 0.25f), lh = 144 * k, ly = y0 + lh / 2f;   // the symbol, 144 tall, breathing
+        c.save();
+        c.scale(sc, sc, cx, ly);
+        Logo.drawSymbol(c, cx - lh * Logo.ASPECT / 2f, y0, lh, -1, false, breath);
+        c.restore();
+        float titleBase = y0 + (144 + 39) * k + 60 * k;
+        c.drawText(stepTitle(), cx, titleBase, prepTitle);
+        float subBase = titleBase + (15 + 55) * k;   // the subtitle 15 under the title
+        c.drawText(stepBody(), cx, subBase, prepSub);
+        float barTop = subBase + (8 + 60) * k, bw = 780 * k, bh = 12 * k;
+        float p = ready ? 1f : prepCurve(Math.min(1f, t / 4200f));
+        if (!ready && !prepDone) p = Math.min(p, 0.9f);   // it waits at 90 % until the work is done
+        fill.setShader(null);
+        fill.setColor(0x24FFFFFF);
+        tmp.set(cx - bw / 2, barTop, cx + bw / 2, barTop + bh);
+        c.drawRoundRect(tmp, bh / 2, bh / 2, fill);
+        if (p > 0.005f) {
+            tmp.set(cx - bw / 2, barTop, cx - bw / 2 + bw * p, barTop + bh);
+            fill.setShader(new LinearGradient(cx - bw / 2, 0, cx + bw / 2, 0, Brand.accents(), null, Shader.TileMode.CLAMP));
+            fill.setColor(0xFFFFFFFF);
+            c.drawRoundRect(tmp, bh / 2, bh / 2, fill);
+            fill.setShader(null);
+        }
+        float phraseBase = barTop + bh + (18 + 22) * k;
+        if (ready) {
+            String msg = T("Tudo no lugar", "Everything in its place", "Todo en su lugar");
+            float tw = prepPhrase.measureText(msg), ic = 30 * k;
+            Symbols.draw(getContext(), c, "check", cx - tw / 2 - ic * 0.2f - 6 * k, phraseBase - 9 * k, ic, 0xFFFFFFFF);
+            prepPhrase.setTextAlign(Paint.Align.LEFT);
+            c.drawText(msg, cx - tw / 2 + ic * 0.5f, phraseBase, prepPhrase);
+            prepPhrase.setTextAlign(Paint.Align.CENTER);
+        } else {
+            int idx = (int) Math.min(3, t / 1050);
+            float age = t - idx * 1050L, e = curve(age / 380f);
+            prepPhrase.setAlpha(Math.round(199 * e));
+            c.drawText(prepPhrase(idx), cx, phraseBase + 10 * k * (1 - e), prepPhrase);
+        }
+    }
+
+    /** One "Get to know Borealis" screen: the segments, the counter, the title, the text and the picture. */
+    private void drawTour(Canvas c, float cx, float top) {
+        long now = SystemClock.uptimeMillis();
+        boolean auto = !screenReaderOn(getContext());
+        float segW = 180 * k, segH = 9 * k, segGap = 12 * k, sx = cx - (4 * segW + 3 * segGap) / 2, sy = top + 42 * k;
+        for (int i = 0; i < 4; i++) {
+            tmp.set(sx + i * (segW + segGap), sy, sx + i * (segW + segGap) + segW, sy + segH);
+            fill.setShader(null);
+            fill.setColor(0x38FFFFFF);
+            c.drawRoundRect(tmp, segH / 2, segH / 2, fill);
+            float fillP = i < tour ? 1f : i == tour ? (auto ? Ui.clamp((now - tourAt) / 6500f) : 1f) : 0f;
+            if (fillP > 0.005f) {
+                RectF seg = new RectF(tmp.left, tmp.top, tmp.left + segW * fillP, tmp.bottom);
+                fill.setShader(new LinearGradient(sx, 0, sx + 4 * segW + 3 * segGap, 0, Brand.accents(), null, Shader.TileMode.CLAMP));
+                fill.setColor(0xFFFFFFFF);
+                c.drawRoundRect(seg, segH / 2, segH / 2, fill);
+                fill.setShader(null);
+            }
+        }
+        c.drawText(T("CONHEÇA O BOREALIS · " + (tour + 1) + " DE 4", "GET TO KNOW BOREALIS · " + (tour + 1) + " OF 4", "CONOCE BOREALIS · " + (tour + 1) + " DE 4"),
+                cx, top + 90 * k, tourLabel);
+        float e = curve((now - tourAt) / 420f);
+        int layer = e < 0.999f ? c.saveLayerAlpha(MX * k, top + 100 * k, (MX + MW) * k, top + 680 * k, Math.round(255 * e)) : -1;
+        c.save();
+        c.translate(0, 12 * k * (1 - e));
+        c.drawText(tourTitle(tour), cx, top + 164 * k, tourTitleP);
+        StaticLayout l = wrapped(tourBody(tour), 1080 * k, tourBodyP, 3);
+        c.save();
+        c.translate(cx - 540 * k, top + 190 * k);
+        l.draw(c);
+        c.restore();
+        tmp.set(MX * k + 240 * k, top + 294 * k, MX * k + 240 * k + 960 * k, top + 294 * k + 360 * k);
+        tourDemo.draw(c, getContext(), tmp, tour, now - tourAt, recsMode());
+        c.restore();
+        if (layer >= 0) c.restoreToCount(layer);
+    }
+
+    /** A title in Gloock 60; a very long one (in a warning) shrinks a little to stay inside the panel. */
+    private void drawTitle(Canvas c, String text, float cx, float y) {
+        float size = title.getTextSize(), max = (MW - 120) * k, wd = title.measureText(text);
+        if (wd > max) title.setTextSize(size * max / wd);
+        c.drawText(text, cx, y, title);
+        title.setTextSize(size);
     }
 
     private StaticLayout wrapped(String text, float width, Paint p, int maxLines) {
@@ -888,7 +1195,14 @@ final class OnboardingView extends View {
             if (phase >= fs) { tf = Math.abs(phase - (PERIOD - FADE / 2f)) / (FADE / 2f); moving = true; }
             else { handler.removeCallbacks(tick); handler.postDelayed(tick, fs - phase); }
         }
+        moving |= tickAuto();
         ensureLayout();
+        int sid = stepId();
+        if (!confirm && sid == S_PREP) {   // no panel: the logo breathes over the background
+            drawBare(c, sid);
+            postInvalidateOnAnimation();
+            return;
+        }
         for (int i = 0; i < pop.length; i++) {
             pop[i].target = i == focus && showFocus ? 1 : 0;
             moving |= pop[i].step(dt);
@@ -915,7 +1229,7 @@ final class OnboardingView extends View {
         boolean fading = a < 0.999f || e < 0.999f;
         int layer = fading ? c.saveLayerAlpha(box.left, box.top, box.right, box.bottom, Math.round(255 * a)) : -1;
         if (!confirm) drawDots(c);
-        int layer2 = fading ? c.saveLayerAlpha(box.left, box.top, box.right, (MY + 725) * k, Math.round(255 * e)) : -1;
+        int layer2 = fading ? c.saveLayerAlpha(box.left, box.top, box.right, (MY + 715) * k, Math.round(255 * e)) : -1;
         c.save();
         c.translate((1 - e) * 36 * k * enterDir, 0);
         moving |= drawContent(c);
@@ -929,55 +1243,93 @@ final class OnboardingView extends View {
         if (moving) postInvalidateOnAnimation();
     }
 
+    private android.graphics.Path welcomeClipPath;
+
+    /** The panel's rounded shape (for what the design crops at its corners). */
+    private android.graphics.Path welcomeClip() {
+        if (welcomeClipPath == null) welcomeClipPath = new android.graphics.Path();
+        welcomeClipPath.reset();
+        welcomeClipPath.addRoundRect(box, RADIUS * k, RADIUS * k, android.graphics.Path.Direction.CW);
+        return welcomeClipPath;
+    }
+
     /** Draws the step's own content; true while it is animating on its own (the greeting changing language). */
     private boolean drawContent(Canvas c) {
         float cx = w / 2f, top = MY * k;
+        if (confirm && !warnPerm) {
+            drawSkip(c, cx, top);
+            return false;
+        }
         if (confirm) {
-            c.drawText(stepTitle(), cx, top + 230 * k, title);
+            drawTitle(c, stepTitle(), cx, top + 230 * k);
             drawWrapped(c, stepBody(), cx, top + 276 * k, 940 * k, body, 7);
             return false;
         }
         switch (stepId()) {
             case S_WELCOME: {
-                float u = 0.66f * k;
-                Logo.drawLockup(c, getContext(), cx - 500 * u, top + 100 * k - 269.6f * u, u);
+                // The design: two "curtains" at the back of the panel (cropped by its corners), then the vertical logo (symbol 186) from 105 under the top.
+                float pl = MX * k;
+                c.save();
+                c.clipPath(welcomeClip());
+                Logo.drawCurtains(c, pl + 915 * k, top + 225 * k, 1230 * k, 0.12f);
+                Logo.drawCurtains(c, pl - 285 * k, top + 450 * k, 930 * k, 0.10f);
+                c.restore();
+                long lt = SystemClock.uptimeMillis() - stepAt;
+                Logo.drawVertical(c, getContext(), cx, top + 105 * k, 186 * k, lt, reducedMotion, 1f);
                 greet.setAlpha(Math.round(255 * tf));
                 c.drawText(stepTitle(), cx, top + 520 * k, greet);
                 greet.setAlpha(255);
                 drawWrapped(c, stepBody(), cx, top + 556 * k, 900 * k, body, 1, tf);
-                return false;
+                return lt < Logo.ENTRANCE_MS + 50;   // keep drawing while the lights rise
             }
             case S_LANG: {
-                c.drawText(stepTitle(), cx, top + 150 * k, title);
+                drawTitle(c, stepTitle(), cx, top + 150 * k);
                 drawWrapped(c, stepBody(), cx, top + 186 * k, 1000 * k, body, 2);
+                if (note == null || note.getTextSize() != 22.5f * k) {
+                    note = Ui.text(Ui.medium, 22.5f * k, 0x99FFFFFF);
+                    note.setTextAlign(Paint.Align.CENTER);
+                }
+                c.drawText(T("A tela inteira muda de idioma assim que você escolhe um.", "The whole screen changes language as soon as you pick one.",
+                        "Toda la pantalla cambia de idioma en cuanto eliges uno."), cx, top + 636 * k, note);
                 return false;
             }
             case S_NAME:
                 if (pickingAvatar) {
-                    c.drawText(stepTitle(), cx, top + 110 * k, title);
-                    drawWrapped(c, stepBody(), cx, top + 136 * k, 900 * k, body, 1);
+                    drawTitle(c, stepTitle(), cx, top + 137 * k);
+                    drawWrapped(c, stepBody(), cx, top + 168 * k, 900 * k, body, 1);
+                    drawPills(c, cx, (MY + 735) * k, T("“OK” · Escolher", "“OK” · Choose", "“OK” · Elegir"), T("“Voltar” · Cancelar", "“Back” · Cancel", "“Atrás” · Cancelar"));
                     return false;
                 }
-                c.drawText(stepTitle(), cx, top + 110 * k, title);
-                drawWrapped(c, stepBody(), cx, top + 136 * k, 900 * k, body, 1);
+                drawTitle(c, stepTitle(), cx, top + 137 * k);
+                drawWrapped(c, stepBody(), cx, top + 168 * k, 900 * k, body, 1);
+                if (note == null || note.getTextSize() != 22.5f * k) {
+                    note = Ui.text(Ui.medium, 22.5f * k, 0x99FFFFFF);
+                    note.setTextAlign(Paint.Align.CENTER);
+                }
+                note.setColor(0xB3FFFFFF);
+                String nm = Prefs.name().isEmpty() ? T("seu nome", "your name", "tu nombre") : Prefs.name();
+                boolean none = Prefs.name().isEmpty();   // the Home's own greeting
+                c.drawText(T("Assim a tela inicial te cumprimenta: «" + (none ? "Olá!" : "Olá, " + nm + "!") + "»", "This is how the home screen greets you: “" + (none ? "Hi!" : "Hi, " + nm + "!") + "”",
+                        "Así te saluda el Home: «" + (none ? "¡Hola!" : "¡Hola, " + nm + "!") + "»"), cx, top + 622 * k, note);
+                note.setColor(0x99FFFFFF);
                 return false;
             case S_PLACE: {
-                c.drawText(stepTitle(), cx, top + 110 * k, title);
-                drawWrapped(c, stepBody(), cx, top + 136 * k, 1000 * k, body, 2);
-                tmp.set(cx - 224 * k, top + 255 * k, cx + 224 * k, top + 455 * k);   // the same card as in the news
+                drawTitle(c, stepTitle(), cx, top + 137 * k);
+                drawWrapped(c, stepBody(), cx, top + 168 * k, 1110 * k, body, 2);
+                tmp.set(cx - 225 * k, top + 273 * k, cx + 225 * k, top + 474 * k);   // the same card as in the news
                 placeWidget.advance(frameDt);
                 placeWidget.draw(c, getContext(), tmp, 1f, form.widgetCity(), form.widgetSymbol(), form.widgetTemp());
                 return true;
             }
             case S_HOME:
-                c.drawText(stepTitle(), cx, top + 110 * k, title);
-                drawWrapped(c, stepBody(), cx, top + 136 * k, 1000 * k, body, 2);
+                drawTitle(c, stepTitle(), cx, top + 137 * k);
+                drawWrapped(c, stepBody(), cx, top + 168 * k, 1110 * k, body, 2);
                 return false;
             case S_PERM: {
-                c.drawText(stepTitle(), cx, top + 106 * k, title);
-                drawWrapped(c, stepBody(), cx, top + 130 * k, 1100 * k, body, 2);
+                drawTitle(c, stepTitle(), cx, top + 137 * k);
+                drawWrapped(c, stepBody(), cx, top + 168 * k, 1100 * k, body, 2);
                 // The picture: the home screen with "Continue watching", and the bell for the notification access.
-                RectF pic = new RectF(cx - 240 * k, top + 250 * k, cx + 240 * k, top + 470 * k);
+                RectF pic = new RectF(cx - 240 * k, top + 268 * k, cx + 240 * k, top + 488 * k);
                 drawPreview(c, pic, true);
                 float br = 32 * k, bx = pic.right - 6 * k, by = pic.top + 6 * k;
                 tmp.set(bx - br, by - br, bx + br, by + br);
@@ -995,58 +1347,186 @@ final class OnboardingView extends View {
                 String msg = on ? T("Pronto: “Continuar assistindo” já funciona.", "Done: “Continue watching” already works.", "Listo: “Continuar viendo” ya funciona.")
                         : permWasOn ? T("Você desativou o acesso: sem ele não dá para ver “Continuar assistindo”.", "You turned the access off: without it “Continue watching” can't be shown.",
                         "Desactivaste el acceso: sin él no podrás ver “Continuar viendo”.")
-                        : T("Ao ativar, a TV abrirá uma lista: procure “Borealis”, ative-o e volte com Voltar.",
-                        "When you turn it on, the TV opens a list: find “Borealis”, switch it on and come back with Back.",
-                        "Al activarlo, la TV abrirá una lista: busca “Borealis”, actívalo y vuelve con Atrás.");
+                        : T("Ao ativar, a TV abrirá uma lista: procure “Borealis”, ative-o e volte com “Voltar”.",
+                        "When you turn it on, the TV opens a list: find “Borealis”, switch it on and come back with “Back”.",
+                        "Al activarlo, la TV abrirá una lista: busca “Borealis”, actívalo y vuelve con “Atrás”.");
                 drawWrapped(c, msg, cx, top + 636 * k, 900 * k, hint, 2);
                 return false;
             }
-            case S_SHELF: {
-                c.drawText(stepTitle(), cx, top + 106 * k, title);
-                drawWrapped(c, stepBody(), cx, top + 130 * k, 1000 * k, body, 3);
-                tmp.set(cx - 400 * k, top + 270 * k, cx + 400 * k, top + 270 * k + 450 * k);
-                shelfDemo.draw(c, getContext(), tmp);
+            case S_TOUR:
+                drawTour(c, cx, top);
                 return true;
-            }
-            default: {
-                float r = 74 * k, cy = top + 160 * k;
-                String id = Avatars.current();
-                tmp.set(cx - r - 8 * k, cy - r - 8 * k, cx + r + 8 * k, cy + r + 8 * k);
-                fill.setShader(gradient(tmp));
-                fill.setColor(0xFFFFFFFF);
-                c.drawCircle(cx, cy, r + 8 * k, fill);
-                fill.setShader(null);
-                if (!id.isEmpty()) Avatars.draw(c, getContext(), id, cx, cy, r, 1f);
-                c.drawText(stepTitle(), cx, top + 322 * k, title);
-                drawWrapped(c, stepBody(), cx, top + 346 * k, 940 * k, body, 2);
-                drawSummary(c, cx, top + 470 * k);
-                return false;
-            }
+            default:
+                drawSupport(c, cx, top);
+                return true;
         }
     }
 
-    private void drawSummary(Canvas c, float cx, float y) {
-        String[] names = {T("Idioma", "Language", "Idioma"), T("Tela inicial", "Home screen", "Pantalla de inicio"),
-                T("Continuar assistindo", "Continue watching", "Continuar viendo")};
-        String[] vals = {languageName(), modeName(Prefs.cardsMode().equals("recent")), playbackOn() ? yes() : no()};
-        int n = Prefs.cardsMode().equals("recent") ? 3 : 2;
-        small.setColor(0xCCFFFFFF);
-        for (int i = 0; i < n; i++) {
-            String text = names[i] + ": " + vals[i];
-            float ly = y + i * 44 * k, tw = small.measureText(text), x = cx - (34 * k + tw) / 2;
-            boolean good = i < 2 || playbackOn();
-            Symbols.draw(getContext(), c, good ? "check" : "chevron_right", x + 11 * k, ly - 8 * k, 22 * k, good ? Brand.LILY : 0x80FFFFFF);
-            small.setTextAlign(Paint.Align.LEFT);
-            c.drawText(text, x + 34 * k, ly, small);
-            small.setTextAlign(Paint.Align.CENTER);
+    private Paint skipT, skipV;
+
+    /** "Shall we leave it for later?": what stays as it comes from the factory, in three cards. */
+    private void drawSkip(Canvas c, float cx, float top) {
+        if (skipT == null || skipT.getTextSize() != 25.5f * k) {
+            skipT = Ui.text(Ui.bold, 25.5f * k, 0xFFFFFFFF);
+            skipT.setTextAlign(Paint.Align.CENTER);
+            skipV = Ui.text(Ui.medium, 21 * k, 0xA8FFFFFF);
+            skipV.setTextAlign(Paint.Align.CENTER);
         }
-        small.setColor(0xB3FFFFFF);
+        if (note == null || note.getTextSize() != 22.5f * k) {
+            note = Ui.text(Ui.medium, 22.5f * k, 0x99FFFFFF);
+            note.setTextAlign(Paint.Align.CENTER);
+        }
+        drawTitle(c, stepTitle(), cx, top + 146 * k);
+        drawWrapped(c, stepBody(), cx, top + 183 * k, 990 * k, body, 2);
+        String[] t = {T("Seu nome", "Your name", "Tu nombre"), T("O clima", "The weather", "El clima"), T("Continuar assistindo", "Continue watching", "Continuar viendo")};
+        String[] v = {T("Sem nome nem avatar", "No name or avatar", "Sin nombre ni avatar"), T("Sem cidade", "No city", "Sin ciudad"), T("Desativado", "Off", "Apagado")};
+        int[] tint = {Brand.LILY, Brand.PEACH, Brand.MELON};
+        float cw = 294 * k, ch = 225 * k, gap = 27 * k, x0 = cx - (3 * cw + 2 * gap) / 2, y = top + 294 * k;
+        for (int i = 0; i < 3; i++) {
+            float x = x0 + i * (cw + gap);
+            tmp.set(x, y, x + cw, y + ch);
+            fill.setShader(null);
+            fill.setColor(0x12FFFFFF);
+            c.drawRoundRect(tmp, 30 * k, 30 * k, fill);
+            line.setStyle(Paint.Style.STROKE);
+            line.setStrokeWidth(1.5f * k);
+            line.setColor(0x1AFFFFFF);
+            tmp2.set(tmp.left + 0.75f * k, tmp.top + 0.75f * k, tmp.right - 0.75f * k, tmp.bottom - 0.75f * k);
+            c.drawRoundRect(tmp2, 29 * k, 29 * k, line);
+            float ccx = tmp.centerX(), ccy = y + 72 * k;
+            fill.setColor(tint[i]);
+            c.drawCircle(ccx, ccy, 39 * k, fill);
+            if (i == 0) {   // a person: head and shoulders
+                line.setStrokeWidth(3.3f * k);
+                line.setStrokeCap(Paint.Cap.ROUND);
+                line.setColor(Brand.INK);
+                float u = 36 * k / 24f;
+                c.drawCircle(ccx, ccy - 3.5f * u, 3.8f * u, line);
+                clip.rewind();
+                clip.moveTo(ccx - 7.5f * u, ccy + 8 * u);
+                clip.cubicTo(ccx - 6.3f * u, ccy + 4.2f * u, ccx - 3.5f * u, ccy + 2.5f * u, ccx, ccy + 2.5f * u);
+                clip.cubicTo(ccx + 3.5f * u, ccy + 2.5f * u, ccx + 6.3f * u, ccy + 4.2f * u, ccx + 7.5f * u, ccy + 8 * u);
+                c.drawPath(clip, line);
+                line.setStrokeCap(Paint.Cap.BUTT);
+            } else {
+                Symbols.draw(getContext(), c, i == 1 ? "sunny" : "play", ccx, ccy, 34 * k, Brand.INK);
+            }
+            line.setStyle(Paint.Style.FILL);
+            c.drawText(t[i], ccx, y + 146 * k, skipT);
+            c.drawText(v[i], ccx, y + 186 * k, skipV);
+        }
+        c.drawText(T("Volte quando quiser em Ajustes › Preferências › Repetir boas-vindas.", "Come back any time from Settings › Preferences › Repeat welcome.",
+                "Vuelve cuando quieras desde Ajustes › Preferencias › Repetir bienvenida."), cx, top + 578 * k, note);
+    }
+
+    /** Two key hints side by side (54 high, white 8%), centered at `cx`. */
+    private void drawPills(Canvas c, float cx, float top, String a, String b) {
+        if (pillText == null || pillText.getTextSize() != 21 * k) pillText = Ui.text(Ui.semibold, 21 * k, 0xCCFFFFFF);
+        float ph = 54 * k, gap = 18 * k, wa = pillText.measureText(a) + 48 * k, wb = pillText.measureText(b) + 48 * k;
+        float x = cx - (wa + gap + wb) / 2;
+        fill.setShader(null);
+        fill.setColor(0x14FFFFFF);
+        tmp.set(x, top, x + wa, top + ph);
+        c.drawRoundRect(tmp, ph / 2, ph / 2, fill);
+        c.drawText(a, x + 24 * k, top + ph / 2 + Ui.halfCap(pillText), pillText);
+        x += wa + gap;
+        tmp.set(x, top, x + wb, top + ph);
+        c.drawRoundRect(tmp, ph / 2, ph / 2, fill);
+        c.drawText(b, x + 24 * k, top + ph / 2 + Ui.halfCap(pillText), pillText);
+    }
+
+    private Paint rowT, rowD, tagP, urlP, note, fieldLabel, fieldText, fieldHint, pillText;
+    private final android.graphics.Path heartPath = new android.graphics.Path();
+
+    private void heart(Canvas c, float hx, float hy, float size, int color) {
+        if (heartPath.isEmpty()) {
+            heartPath.moveTo(0, 0.9f);
+            heartPath.cubicTo(-1.2f, 0, -0.9f, -0.9f, 0, -0.35f);
+            heartPath.cubicTo(0.9f, -0.9f, 1.2f, 0, 0, 0.9f);
+            heartPath.close();
+        }
+        fill.setShader(null);
+        fill.setColor(color);
+        c.save();
+        c.translate(hx, hy);
+        c.scale(size, size);
+        c.drawPath(heartPath, fill);
+        c.restore();
+    }
+
+    /** "Apoya a Borealis", the last step: the code in a ring (with hearts rising) and three reasons, the way the Settings panel shows it. */
+    private void drawSupport(Canvas c, float cx, float top) {
+        if (rowT == null || rowT.getTextSize() != 29 * k) {
+            rowT = Ui.text(Ui.semibold, 29 * k, 0xFFFFFFFF);
+            rowD = Ui.text(Ui.medium, 23 * k, 0xD1FFFFFF);
+            tagP = Ui.text(Ui.semibold, 21 * k, 0xB3FFFFFF);
+            tagP.setTextAlign(Paint.Align.CENTER);
+            urlP = Ui.text(Ui.semibold, 29 * k, 0xFFFFFFFF);
+            urlP.setTextAlign(Paint.Align.CENTER);
+        }
+        float t = SystemClock.uptimeMillis() / 1000f;
+        int[] tint = {Brand.LILY, Brand.PEACH, Brand.MELON};
+        String ttl = stepTitle();
+        float tw = title.measureText(ttl), beat = 1 + 0.1f * (float) Math.sin(t * 4.5f);
+        heart(c, cx + 28 * k - tw / 2 - 34 * k, top + 121 * k, 22 * k * beat, Brand.PEACH);
+        c.drawText(ttl, cx + 28 * k, top + 137 * k, title);
+        drawWrapped(c, stepBody(), cx, top + 168 * k, 1100 * k, body, 1);
+
+        float qs = 270 * k, qy = top + 280 * k;
+        // the whole group (code column + gap + reasons) centered on the modal
+        float leftW = Math.max(qs + 24 * k, urlP.measureText("github.com/sponsors/Alogus")), gapW = 90 * k, rw = 570 * k;
+        float gl = cx - (leftW + gapW + rw) / 2, qcx = gl + leftW / 2, qx = qcx - qs / 2;
+        // a soft glow behind the code, and hearts rising around it
+        float gr = 250 * k * (0.9f + 0.1f * (float) Math.sin(t * 2.2f));
+        fill.setShader(new RadialGradient(qcx, qy + qs / 2, gr, Ui.alpha(Brand.LILY, 0.34f), 0x00B79CFE, Shader.TileMode.CLAMP));
+        c.drawCircle(qcx, qy + qs / 2, gr, fill);
+        fill.setShader(null);
+        for (int h = 0; h < 10; h++) {
+            float ph = (t * 0.3f + h / 10f) % 1f;
+            float hx = qcx + (float) Math.sin(h * 7.3) * qs * 0.62f + (float) Math.sin(t * 1.4f + h) * 14 * k;
+            float hy = qy + qs + 20 * k - ph * (qs + 100 * k);
+            heart(c, hx, hy, (9 + (h % 3) * 4) * k, Ui.alpha(tint[h % 3], (float) Math.sin(Math.PI * ph) * 0.85f));
+        }
+        // the code, on white, inside the gradient ring
+        tmp.set(qx - 12 * k, qy - 12 * k, qx + qs + 12 * k, qy + qs + 12 * k);
+        fill.setColor(0xFFFFFFFF);
+        c.drawRoundRect(tmp, 42 * k, 42 * k, fill);
+        drawRing(c, tmp, 42 * k, 8 * k, 1f);
+        String[] qr = NoticeView.SPONSOR_QR;
+        float cell = (qs - 36 * k) / qr.length, ox = qx + 18 * k, oy = qy + 18 * k;
+        fill.setColor(Brand.INK);
+        for (int y = 0; y < qr.length; y++)
+            for (int x = 0; x < qr[y].length(); x++)
+                if (qr[y].charAt(x) == '1') c.drawRect(ox + x * cell, oy + y * cell, ox + (x + 1) * cell + 0.5f, oy + (y + 1) * cell + 0.5f, fill);
+        c.drawText("GITHUB SPONSORS", qcx, qy + qs + 62 * k, tagP);
+        c.drawText("github.com/sponsors/Alogus", qcx, qy + qs + 106 * k, urlP);
+
+        // three reasons
+        String[] titles = {T("É voluntário", "It is voluntary", "Es voluntario"), T("Não libera nada", "It unlocks nothing", "No desbloquea nada"), T("Ajuda a continuar", "It keeps it going", "Ayuda a que siga")};
+        String[] descs = {T("Você decide se apoia e quanto.", "You decide if you help and how much.", "Tú decides si apoyar y cuánto."),
+                T("O Borealis é igual para todos.", "Borealis is the same for everyone.", "Borealis es igual para todos."),
+                T("Tempo e melhorias para o Borealis.", "Time and improvements for Borealis.", "Tiempo y mejoras para Borealis.")};
+        float rx = gl + leftW + gapW, rh = 112 * k;
+        for (int i = 0; i < 3; i++) {
+            float ry = qy - 12 * k + i * (rh + 22 * k);
+            tmp.set(rx, ry, rx + rw, ry + rh);
+            fill.setColor(0x14FFFFFF);
+            c.drawRoundRect(tmp, 32 * k, 32 * k, fill);
+            float icx = rx + 62 * k, icy = ry + rh / 2;
+            fill.setColor(tint[i]);
+            c.drawCircle(icx, icy, 37 * k, fill);
+            if (i == 0) heart(c, icx, icy + k, 15 * k * (1 + 0.1f * (float) Math.sin(t * 4.5f)), Brand.INK);
+            else Symbols.draw(getContext(), c, i == 1 ? "check" : "sparkles", icx, icy, 32 * k, Brand.INK);
+            c.drawText(titles[i], rx + 126 * k, icy - 6 * k, rowT);
+            c.drawText(descs[i], rx + 126 * k, icy + 32 * k, rowD);
+        }
     }
 
     /** The progress dots at the top: the current step is a gradient pill, the ones done are solid, the rest dim. */
     private void drawDots(Canvas c) {
-        int n = flow().length;
-        float cy = (MY + 44) * k, r = 7 * k, gap = 26 * k, pill = 40 * k;
+        int n = dotSteps().length, step = Math.max(0, dotPos());
+        if (dotPos() < 0) return;
+        float cy = (MY + 52.5f) * k, r = 7.5f * k, gap = 21 * k, pill = 39 * k;
         float total = (n - 1) * (2 * r + gap) + pill, x = w / 2f - total / 2;
         for (int i = 0; i < n; i++) {
             if (i == step) {
@@ -1058,7 +1538,7 @@ final class OnboardingView extends View {
                 x += pill + gap;
             } else {
                 fill.setShader(null);
-                fill.setColor(i < step ? 0xCCFFFFFF : 0x40FFFFFF);
+                fill.setColor(i < step ? 0xD9FFFFFF : 0x4DFFFFFF);
                 c.drawCircle(x + r, cy, r, fill);
                 x += 2 * r + gap;
             }
@@ -1110,24 +1590,24 @@ final class OnboardingView extends View {
                     fill.setColor(0x26FFFFFF);
                     c.drawRoundRect(r, rad, rad, fill);
                     if (f > 0.01f) drawRing(c, r, rad, 3 * k, f * 0.6f);
-                    button.setColor(0x66FFFFFF);
+                    buttonB.setColor(0x66FFFFFF);
                 } else {
                     fill.setShader(gradient(r));
                     fill.setColor(0xFFFFFFFF);
                     c.drawRoundRect(r, rad, rad, fill);
                     fill.setShader(null);
-                    if (f > 0.01f) drawRing(c, r, rad, 4 * k, f, true);
-                    button.setColor(Brand.INK);
+                    if (f > 0.01f) drawRing(c, r, rad, 4.5f * k, f, true);
+                    buttonB.setColor(Brand.INK);
                 }
-                button.setAlpha(Math.round(button.getAlpha() * tf));
-                c.drawText(e.label, r.centerX(), r.centerY() + Ui.halfCap(button), button);
-                button.setColor(0xFFFFFFFF);
+                buttonB.setAlpha(Math.round(buttonB.getAlpha() * tf));
+                c.drawText(e.label, r.centerX(), r.centerY() + Ui.halfCap(buttonB), buttonB);
+                buttonB.setColor(0xFFFFFFFF);
                 break;
             case BTN:
                 fill.setShader(null);
                 fill.setColor(Ui.alpha(0xFFFFFFFF, 0.08f + 0.14f * f));
                 c.drawRoundRect(r, rad, rad, fill);
-                if (f > 0.01f) drawRing(c, r, rad, 3.5f * k, f);
+                if (f > 0.01f) drawRing(c, r, rad, 4.5f * k, f);
                 else {
                     line.setStyle(Paint.Style.STROKE);
                     line.setStrokeWidth(2 * k);
@@ -1136,9 +1616,9 @@ final class OnboardingView extends View {
                     c.drawRoundRect(tmp, rad - k, rad - k, line);
                     line.setStyle(Paint.Style.FILL);
                 }
-                button.setColor(Ui.alpha(0xFFFFFFFF, 0.78f + 0.22f * f));
-                c.drawText(e.label, r.centerX(), r.centerY() + Ui.halfCap(button), button);
-                button.setColor(0xFFFFFFFF);
+                buttonS.setColor(Ui.alpha(0xFFFFFFFF, 0.78f + 0.22f * f));
+                c.drawText(e.label, r.centerX(), r.centerY() + Ui.halfCap(buttonS), buttonS);
+                buttonS.setColor(0xFFFFFFFF);
                 break;
             case LINK:   // a text link: it gets a soft pill and the white ring when it has the focus
                 if (f > 0.01f) {
@@ -1153,20 +1633,22 @@ final class OnboardingView extends View {
             case LANGUAGE: {
                 float rr = 30 * k;
                 fill.setShader(null);
-                fill.setColor(Ui.alpha(0xFFFFFFFF, (e.selected ? 0.20f : 0.09f) + 0.10f * f));
+                fill.setColor(Ui.alpha(0xFFFFFFFF, 0.09f));
                 c.drawRoundRect(r, rr, rr, fill);
-                if (e.selected) drawSelectedRing(c, r, rr, 3.5f * k);
-                if (f > 0.01f) drawRing(c, r, rr, 4 * k, f);
+                if (f > 0.01f) {
+                    fill.setColor(Ui.alpha(0xFF26212B, f));
+                    c.drawRoundRect(r, rr, rr, fill);
+                    drawRing(c, r, rr, 4.5f * k, f);
+                }
                 float fr = 50 * k, fcy = r.top + 40 * k + fr;
                 Avatars.drawFlag(c, getContext(), e.idx, r.centerX(), fcy, fr);
-                if (e.selected) {   // a check in a gradient circle on the flag
-                    float br = 18 * k, bx = r.centerX() + fr * 0.74f, by = fcy + fr * 0.74f;
-                    tmp.set(bx - br, by - br, bx + br, by + br);
-                    fill.setShader(gradient(tmp));
-                    fill.setColor(0xFFFFFFFF);
+                if (e.selected) {   // the chosen one: the Lily check badge, as in Settings
+                    float br = 22.5f * k, bx = r.right - 34 * k, by = r.top + 34 * k;
+                    fill.setColor(Brand.ink(0xFF));
                     c.drawCircle(bx, by, br, fill);
-                    fill.setShader(null);
-                    Symbols.draw(getContext(), c, "check", bx, by, 22 * k, Brand.INK);
+                    fill.setColor(Brand.LILY);
+                    c.drawCircle(bx, by, br - 4.5f * k, fill);
+                    Symbols.draw(getContext(), c, "check", bx, by, 24 * k, Brand.INK);
                 }
                 float ty = r.bottom - 38 * k + (e.idx == 3 ? -16 * k : 0);
                 button.setColor(0xFFFFFFFF);
@@ -1177,12 +1659,23 @@ final class OnboardingView extends View {
             case AVATAR: {
                 float ar = r.width() / 2;
                 Avatars.draw(c, getContext(), e.label, r.centerX(), r.centerY(), ar, 1f);
-                if (e.selected) {
-                    tmp2.set(r.left, r.top, r.right, r.bottom);
-                    drawSelectedRing(c, tmp2, tmp2.width() / 2, 4.5f * k);
+                if (e.selected) {   // the current one: a white border and the Lily check badge
+                    line.setStyle(Paint.Style.STROKE);
+                    line.setStrokeWidth(4.5f * k);
+                    line.setColor(0xFFFFFFFF);
+                    c.drawCircle(r.centerX(), r.centerY(), ar - 2.25f * k, line);
+                    line.setStyle(Paint.Style.FILL);
+                    float br = 17 * k, bx = r.right - 9 * k, by = r.bottom - 9 * k;
+                    fill.setShader(null);
+                    fill.setColor(Brand.ink(0xFF));
+                    c.drawCircle(bx, by, br, fill);
+                    fill.setColor(Brand.LILY);
+                    c.drawCircle(bx, by, br - 3.5f * k, fill);
+                    Symbols.draw(getContext(), c, "check", bx, by, 18 * k, Brand.INK);
                 }
-                if (f > 0.01f) {
-                    tmp2.set(r.left, r.top, r.right, r.bottom);
+                if (f > 0.01f) {   // the focus: the gradient ring, with air around the avatar
+                    float air = 9 * k;
+                    tmp2.set(r.left - air, r.top - air, r.right + air, r.bottom + air);
                     drawRing(c, tmp2, tmp2.width() / 2, 5 * k, f);
                 }
                 break;
@@ -1200,18 +1693,16 @@ final class OnboardingView extends View {
                     tmp2.set(r.left - 14 * k, r.top - 14 * k, r.right + 14 * k, r.bottom + 14 * k);
                     drawRing(c, tmp2, tmp2.width() / 2, 4 * k, f);
                 }
-                float bx = r.right - 14 * k, by = r.bottom - 14 * k, br = 26 * k;
-                tmp.set(bx - br, by - br, bx + br, by + br);
-                fill.setShader(gradient(tmp));
-                fill.setColor(0xFFFFFFFF);
-                c.drawCircle(bx, by, br, fill);
+                float bx = r.right - 20 * k, by = r.bottom - 20 * k, br = 30 * k;
                 fill.setShader(null);
+                fill.setColor(0xFFFFFFFF);   // the pencil: a white circle with a Night border (not the gradient)
+                c.drawCircle(bx, by, br, fill);
                 line.setStyle(Paint.Style.STROKE);
-                line.setStrokeWidth(4 * k);
+                line.setStrokeWidth(4.5f * k);
                 line.setColor(Brand.ink(0xFF));
                 c.drawCircle(bx, by, br, line);
                 line.setStyle(Paint.Style.FILL);
-                drawPencil(c, bx, by, 30 * k, Brand.INK);
+                drawPencil(c, bx, by, 36 * k, Brand.INK);
                 break;
             }
             case OPTION: {
@@ -1251,7 +1742,7 @@ final class OnboardingView extends View {
                 }
                 small.setTextAlign(Paint.Align.LEFT);
                 small.setColor(e.selected ? 0xFFFFFFFF : 0xB3FFFFFF);
-                c.drawText(e.selected ? T("Selecionado", "Selected", "Seleccionado") : T("Selecionar", "Select", "Seleccionar"), cxm + cr + 14 * k, cym + Ui.halfCap(small), small);
+                c.drawText(e.selected ? T("Escolhida", "Chosen", "Elegida") : T("Escolher", "Choose", "Elegir"), cxm + cr + 14 * k, cym + Ui.halfCap(small), small);
                 small.setColor(0xB3FFFFFF);
                 small.setTextAlign(Paint.Align.CENTER);
                 break;
@@ -1285,8 +1776,40 @@ final class OnboardingView extends View {
                 c.drawCircle(e.selected ? sx + sw - sh / 2 : sx + sh / 2, sy + sh / 2, sh / 2 - 6 * k, fill);
                 break;
             }
+            case FIELD: {   // "YOUR NAME" and the field under it, as in My profile
+                float rr = 27 * k;
+                if (fieldLabel == null || fieldLabel.getTextSize() != 19.5f * k) {
+                    fieldLabel = Ui.text(Ui.bold, 19.5f * k, 0x99FFFFFF);
+                    fieldLabel.setLetterSpacing(0.08f);
+                    fieldLabel.setTextAlign(Paint.Align.CENTER);
+                    fieldText = Ui.text(Ui.semibold, 33 * k, 0xFFFFFFFF);
+                    fieldHint = Ui.text(Ui.semibold, 21 * k, 0xB3FFFFFF);
+                    fieldHint.setTextAlign(Paint.Align.RIGHT);
+                }
+                c.drawText(T("SEU NOME", "YOUR NAME", "TU NOMBRE"), e.r.centerX(), e.r.top - 20 * k, fieldLabel);
+                fill.setShader(null);
+                fill.setColor(f > 0.01f ? 0xFF26212B : 0xFF211D26);
+                c.drawRoundRect(e.r, rr, rr, fill);
+                if (f > 0.01f) drawRing(c, e.r, rr, 4.5f * k, f);
+                else {
+                    line.setStyle(Paint.Style.STROKE);
+                    line.setStrokeWidth(4.5f * k);
+                    line.setColor(0x29FFFFFF);
+                    tmp.set(e.r.left + 2.25f * k, e.r.top + 2.25f * k, e.r.right - 2.25f * k, e.r.bottom - 2.25f * k);
+                    c.drawRoundRect(tmp, rr - 2.25f * k, rr - 2.25f * k, line);
+                    line.setStyle(Paint.Style.FILL);
+                }
+                boolean empty = Prefs.name().isEmpty();
+                fieldText.setColor(empty ? 0x80FFFFFF : 0xFFFFFFFF);
+                c.drawText(e.value, e.r.left + 36 * k, e.r.centerY() + Ui.halfCap(fieldText), fieldText);
+                if (f > 0.01f) {
+                    fieldHint.setAlpha(Math.round(179 * f));
+                    c.drawText(T("“OK” · Editar", "“OK” · Edit", "“OK” · Editar"), e.r.right - 30 * k, e.r.centerY() + Ui.halfCap(fieldHint), fieldHint);
+                }
+                break;
+            }
             case FORM:
-                form.draw(c, k, MX + MW / 2, MY + 495, index == focus && !confirm, frameDt);
+                form.draw(c, k, MX + MW / 2, MY + 501, index == focus && !confirm, frameDt, true);
                 break;
             default: {   // ROW: label left, value right
                 float rr = 24 * k;
@@ -1342,7 +1865,29 @@ final class OnboardingView extends View {
         return l;
     }
 
-    /** A small picture of the home screen with that choice: "continue watching" has wide cards with a progress bar; "recommendations" has tabs and posters. */
+    private android.graphics.DashPathEffect previewDash;
+    private static Bitmap miniWall;
+    private static boolean miniLoading;
+
+    /** The wallpaper the person has now, small, for the miniatures of the home screen (decoded once, off the main thread). */
+    private void loadMiniWall() {
+        if (miniWall != null || miniLoading) return;
+        miniLoading = true;
+        final Context app = getContext().getApplicationContext();
+        new Thread(() -> {
+            try (java.io.InputStream in = app.getAssets().open(Prefs.WALLPAPER_FILES[Math.max(0, Math.min(Prefs.WALLPAPER_FILES.length - 1, Prefs.wallpaper()))])) {
+                android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+                o.inSampleSize = 4;
+                miniWall = android.graphics.BitmapFactory.decodeStream(in, null, o);
+            } catch (Exception | OutOfMemoryError ex) {
+                AppLog.w("miniature wallpaper: " + ex);
+            }
+            miniLoading = false;
+            postInvalidate();
+        }, "onboarding-wall").start();
+    }
+
+    /** A small picture of the new home screen with that choice: greeting, cards (a progress bar, or tabs and posters), and the pinned apps ending in a "+". */
     private void drawPreview(Canvas c, RectF r, boolean recent) {
         float rr = 16 * k;
         fill.setShader(null);
@@ -1352,73 +1897,102 @@ final class OnboardingView extends View {
         clip.rewind();
         clip.addRoundRect(r, rr, rr, Path.Direction.CW);
         c.clipPath(clip);
-        fill.setColor(0x1AB79CFE);
-        c.drawCircle(r.right - 40 * k, r.top + 30 * k, 130 * k, fill);
-        fill.setColor(0x14FE9565);
-        c.drawCircle(r.left + 60 * k, r.bottom, 120 * k, fill);
+        Bitmap wb = miniWall;
+        if (wb != null) {   // the real wallpaper (center-cropped), with a scrim from 15 % at the top to 55 % at the bottom
+            float sc = Math.max(r.width() / wb.getWidth(), r.height() / wb.getHeight());
+            float bw = wb.getWidth() * sc, bh = wb.getHeight() * sc;
+            tmp2.set(r.centerX() - bw / 2, r.centerY() - bh / 2, r.centerX() + bw / 2, r.centerY() + bh / 2);
+            c.drawBitmap(wb, null, tmp2, null);
+            fill.setShader(new LinearGradient(0, r.top, 0, r.bottom, new int[] {Ui.alpha(Brand.INK, 0.15f), Ui.alpha(Brand.INK, 0.55f)}, null, Shader.TileMode.CLAMP));
+            c.drawRect(r, fill);
+            fill.setShader(null);
+        } else {
+            fill.setColor(0x1AB79CFE);
+            c.drawCircle(r.right - 40 * k, r.top + 30 * k, 130 * k, fill);
+            fill.setColor(0x14FE9565);
+            c.drawCircle(r.left + 60 * k, r.bottom, 120 * k, fill);
+        }
         c.restore();
-        float pad = 22 * k, x = r.left + pad, y = r.top + 22 * k;
-        // greeting (as lines) and the corner buttons
+        float pad = 22 * k, x = r.left + pad, y = r.top + 18 * k;
+        // the avatar and the greeting (as lines), and the pill at the right
+        fill.setColor(Ui.alpha(Brand.LILY, 0.85f));
+        c.drawCircle(x + 14 * k, y + 14 * k, 14 * k, fill);
         fill.setColor(0x80FFFFFF);
-        tmp.set(x, y, x + 74 * k, y + 8 * k);
-        c.drawRoundRect(tmp, 4 * k, 4 * k, fill);
+        tmp.set(x + 38 * k, y + 4 * k, x + 98 * k, y + 10 * k);
+        c.drawRoundRect(tmp, 3 * k, 3 * k, fill);
         fill.setColor(0xE6FFFFFF);
-        tmp.set(x, y + 18 * k, x + 170 * k, y + 32 * k);
-        c.drawRoundRect(tmp, 6 * k, 6 * k, fill);
+        tmp.set(x + 38 * k, y + 16 * k, x + 168 * k, y + 26 * k);
+        c.drawRoundRect(tmp, 5 * k, 5 * k, fill);
         fill.setColor(0x33FFFFFF);
-        for (int i = 0; i < 4; i++) c.drawCircle(r.right - pad - 10 * k - i * 28 * k, y + 14 * k, 9 * k, fill);
-        float ry = y + 54 * k;
-        int[] tint = {Brand.LILY, Brand.PEACH, Brand.MELON, Brand.LILY};
+        tmp.set(r.right - pad - 74 * k, y + 6 * k, r.right - pad, y + 24 * k);
+        c.drawRoundRect(tmp, 9 * k, 9 * k, fill);
+        float ry = y + 44 * k;
+        int[] tint = {Brand.LILY, Brand.PEACH, Brand.MELON, Brand.LILY, Brand.PEACH};
         if (recent) {
             // a section line, then three wide cards with a progress bar
             fill.setColor(0xB3FFFFFF);
-            tmp.set(x, ry, x + 96 * k, ry + 9 * k);
+            tmp.set(x, ry, x + 96 * k, ry + 8 * k);
             c.drawRoundRect(tmp, 4 * k, 4 * k, fill);
-            float cw = (r.width() - 2 * pad - 2 * 14 * k) / 3, ch = 92 * k, cy0 = ry + 26 * k;
+            float cw = (r.width() - 2 * pad - 2 * 14 * k) / 3, ch = 56 * k, cy0 = ry + 20 * k;
             for (int i = 0; i < 3; i++) {
                 float cx0 = x + i * (cw + 14 * k);
                 tmp.set(cx0, cy0, cx0 + cw, cy0 + ch);
                 fill.setColor(Ui.alpha(tint[i], 0.32f));
-                c.drawRoundRect(tmp, 10 * k, 10 * k, fill);
+                c.drawRoundRect(tmp, 9 * k, 9 * k, fill);
                 fill.setColor(0x33FFFFFF);
-                tmp2.set(cx0 + 10 * k, cy0 + ch - 16 * k, cx0 + cw - 10 * k, cy0 + ch - 10 * k);
-                c.drawRoundRect(tmp2, 3 * k, 3 * k, fill);
+                tmp2.set(cx0 + 9 * k, cy0 + ch - 13 * k, cx0 + cw - 9 * k, cy0 + ch - 8 * k);
+                c.drawRoundRect(tmp2, 2.5f * k, 2.5f * k, fill);
                 fill.setColor(0xFFFFFFFF);
-                tmp2.set(cx0 + 10 * k, cy0 + ch - 16 * k, cx0 + 10 * k + (cw - 20 * k) * (0.3f + 0.25f * i), cy0 + ch - 10 * k);
-                c.drawRoundRect(tmp2, 3 * k, 3 * k, fill);
-            }
-            fill.setColor(0x4DFFFFFF);
-            for (int i = 0; i < 3; i++) {
-                float cx0 = x + i * (cw + 14 * k);
-                tmp.set(cx0, cy0 + ch + 10 * k, cx0 + cw * 0.7f, cy0 + ch + 17 * k);
-                c.drawRoundRect(tmp, 3 * k, 3 * k, fill);
+                tmp2.set(cx0 + 9 * k, cy0 + ch - 13 * k, cx0 + 9 * k + (cw - 18 * k) * (0.3f + 0.25f * i), cy0 + ch - 8 * k);
+                c.drawRoundRect(tmp2, 2.5f * k, 2.5f * k, fill);
             }
         } else {
-            // tabs (the first one selected), then posters
+            // chips (the first one selected), then five posters
             float tx = x;
             for (int i = 0; i < 3; i++) {
-                float tw = 54 * k;
-                tmp.set(tx, ry, tx + tw, ry + 18 * k);
+                float tw = 50 * k;
+                tmp.set(tx, ry, tx + tw, ry + 16 * k);
                 if (i == 0) {
                     fill.setShader(gradient(tmp));
                     fill.setColor(0xFFFFFFFF);
                 } else {
                     fill.setColor(0x33FFFFFF);
                 }
-                c.drawRoundRect(tmp, 9 * k, 9 * k, fill);
+                c.drawRoundRect(tmp, 8 * k, 8 * k, fill);
                 fill.setShader(null);
                 tx += tw + 10 * k;
             }
-            float pw = (r.width() - 2 * pad - 3 * 12 * k) / 4, ph = 90 * k, py = ry + 34 * k;
-            for (int i = 0; i < 4; i++) {
-                float px = x + i * (pw + 12 * k);
+            float pw = (r.width() - 2 * pad - 4 * 10 * k) / 5, ph = 62 * k, py = ry + 26 * k;
+            for (int i = 0; i < 5; i++) {
+                float px = x + i * (pw + 10 * k);
                 tmp.set(px, py, px + pw, py + ph);
                 fill.setColor(Ui.alpha(tint[i], 0.30f));
-                c.drawRoundRect(tmp, 9 * k, 9 * k, fill);
-                fill.setColor(0x4DFFFFFF);
-                tmp2.set(px, py + ph + 8 * k, px + pw * 0.75f, py + ph + 14 * k);
-                c.drawRoundRect(tmp2, 3 * k, 3 * k, fill);
+                c.drawRoundRect(tmp, 8 * k, 8 * k, fill);
             }
+        }
+        // the pinned apps: five tiles and the dashed "+" of the next free place
+        float th = 30 * k, tw = th / 0.5625f, ty = r.bottom - 18 * k - th, gap = 10 * k;
+        for (int i = 0; i < 5; i++) {
+            float tx0 = x + i * (tw + gap);
+            if (tx0 + tw > r.right - pad) break;
+            tmp.set(tx0, ty, tx0 + tw, ty + th);
+            fill.setColor(Ui.alpha(tint[(i + 1) % 5], 0.42f));
+            c.drawRoundRect(tmp, 7 * k, 7 * k, fill);
+        }
+        float px = x + 5 * (tw + gap);
+        if (px + tw <= r.right - pad + 1) {
+            if (previewDash == null) previewDash = new android.graphics.DashPathEffect(new float[] {5 * k, 4 * k}, 0);
+            tmp.set(px, ty, px + tw, ty + th);
+            tmp2.set(tmp.left + k, tmp.top + k, tmp.right - k, tmp.bottom - k);
+            line.setStyle(Paint.Style.STROKE);
+            line.setStrokeWidth(2 * k);
+            line.setPathEffect(previewDash);
+            line.setColor(Brand.LILY);
+            c.drawRoundRect(tmp2, 7 * k, 7 * k, line);
+            line.setPathEffect(null);
+            c.drawLine(tmp.centerX() - 5 * k, tmp.centerY(), tmp.centerX() + 5 * k, tmp.centerY(), line);
+            c.drawLine(tmp.centerX(), tmp.centerY() - 5 * k, tmp.centerX(), tmp.centerY() + 5 * k, line);
+            line.setStyle(Paint.Style.FILL);
         }
     }
 }

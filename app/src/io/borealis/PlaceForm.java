@@ -19,6 +19,8 @@ import android.view.KeyEvent;
  */
 final class PlaceForm {
     static final float W = 760, H = 84, GAP = 20, HEIGHT = 2 * H + GAP;
+    /** The welcome's own measures (the design): two fields of 687 x 75, 19.5 apart; the focus ring goes outside, 4.5 wide. */
+    static final float OW = 696, OH = 75, OGAP = 19.5f, OHEIGHT = 2 * OH + OGAP;
     private static final int COUNTRY = 0, CITY = 1;
 
     private final Context ctx;
@@ -33,7 +35,7 @@ final class PlaceForm {
 
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), line = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF r = new RectF(), tmp = new RectF();
-    private Paint label, value, hint, noteP;
+    private Paint label, value, hint, noteP, dLabel, dValue, dHint;
     private float paintK;
 
     PlaceForm(Context c, Runnable redraw) {
@@ -71,8 +73,6 @@ final class PlaceForm {
     }
 
     void release() { click.release(); }
-
-    void focusFirst() { field = COUNTRY; }
 
     void focusLast() { field = CITY; }
 
@@ -188,6 +188,11 @@ final class PlaceForm {
         hint.setTextAlign(Paint.Align.RIGHT);
         noteP = Ui.text(Ui.regular, 25 * k, Brand.PEACH);
         noteP.setTextAlign(Paint.Align.CENTER);
+        dLabel = Ui.text(Ui.medium, 25.5f * k, 0xA6FFFFFF);
+        dValue = Ui.text(Ui.semibold, 27 * k, 0xFFFFFFFF);
+        dValue.setTextAlign(Paint.Align.RIGHT);
+        dHint = Ui.text(Ui.medium, 25.5f * k, 0x80FFFFFF);
+        dHint.setTextAlign(Paint.Align.RIGHT);
     }
 
     private Shader gradient(RectF b) {
@@ -212,8 +217,58 @@ final class PlaceForm {
 
     /** Draws the two fields (the first one's top at `top`, centered on `cx`). `focused`: the form has the focus. True while it moves. */
     boolean draw(Canvas c, float k, float cx, float top, boolean focused, float dt) {
+        return draw(c, k, cx, top, focused, dt, false);
+    }
+
+    /** `design`: the welcome's look (687 x 75 fields, the focused one dark with the gradient ring outside, no growing). */
+    boolean draw(Canvas c, float k, float cx, float top, boolean focused, float dt, boolean design) {
         paints(k);
         boolean moving = false;
+        if (design) {
+            float fw = OW - 9, fh = OH;
+            for (int i = 0; i < 2; i++) {
+                pop[i].target = focused && field == i ? 1 : 0;
+                moving |= pop[i].step(dt);
+                float f = Ui.clamp(pop[i].value);
+                float y = top + i * (OH + OGAP);
+                r.set((cx - fw / 2) * k, y * k, (cx + fw / 2) * k, (y + fh) * k);
+                float rr = 21 * k;
+                fill.setShader(null);
+                fill.setColor(f > 0.01f ? Ui.alpha(0xFF2B2533, f) : 0x1AFFFFFF);
+                if (f > 0.01f) {
+                    fill.setColor(0x1AFFFFFF);
+                    c.drawRoundRect(r, rr, rr, fill);
+                    fill.setColor(Ui.alpha(0xFF2B2533, f));
+                }
+                c.drawRoundRect(r, rr, rr, fill);
+                if (f > 0.01f) {
+                    tmp.set(r.left - 4.5f * k, r.top - 4.5f * k, r.right + 4.5f * k, r.bottom + 4.5f * k);
+                    ring(c, tmp, 24 * k, 4.5f * k, f);
+                }
+                float pad = 27 * k;
+                String name = i == COUNTRY ? Ui.tr("País", "Country", "País") : Ui.tr("Cidade", "City", "Ciudad");
+                c.drawText(name, r.left + pad, r.centerY() + Ui.halfCap(dLabel), dLabel);
+                float right = r.right - pad - (i == COUNTRY ? 36 * k : 0);
+                String text;
+                boolean empty;
+                if (i == COUNTRY) {
+                    empty = countryName.isEmpty();
+                    text = empty ? Ui.tr("Escolher", "Choose", "Elegir") : countryName;
+                } else if (cityChosen) {
+                    empty = false;
+                    text = cityLabel;
+                } else {
+                    empty = true;
+                    text = countryCode.isEmpty() ? Ui.tr("Primeiro o país", "Country first", "Primero el país") : Ui.tr("Aperte OK e digite", "Press OK and type", "Pulsa OK y escribe");
+                }
+                Paint p = empty ? dHint : dValue;
+                float avail = right - (r.left + pad + dLabel.measureText(name) + 28 * k);
+                c.drawText(fit(text, p, avail), right, r.centerY() + Ui.halfCap(p), p);
+                if (i == COUNTRY) Symbols.draw(ctx, c, "chevron_down", r.right - pad - 8 * k, r.centerY(), 30 * k, 0xFFFFFFFF);
+            }
+            if (!note.isEmpty()) c.drawText(note, cx * k, (top + OHEIGHT + 44) * k, noteP);
+            return moving;
+        }
         for (int i = 0; i < 2; i++) {
             pop[i].target = focused && field == i ? 1 : 0;
             moving |= pop[i].step(dt);

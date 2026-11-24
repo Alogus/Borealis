@@ -61,8 +61,18 @@ final class TextEntryView extends View {
     private float paintK;
     private final Runnable ask = this::runQuery;
 
+    private ScreenTransition.Run run;   // the default transition, when there is a picture of the screen it opened from (not in the welcome)
+    private Runnable afterExit;
+    private boolean completed;
+
     TextEntryView(Context c, TextEntry.Request req, Closed onClosed) {
+        this(c, req, onClosed, null);
+    }
+
+    /** With `caps` (the screen below, sharp and blurred) the keyboard comes in with the default transition over that screen. */
+    TextEntryView(Context c, TextEntry.Request req, Closed onClosed, Bitmap[] caps) {
         super(c);
+        if (caps != null) run = new ScreenTransition.Run(caps, 0.62f);
         this.req = req;
         this.onClosed = onClosed;
         click = new Click(c);
@@ -192,8 +202,22 @@ final class TextEntryView extends View {
         if (closed) return;
         closed = true;
         handler.removeCallbacksAndMessages(null);
+        if (run != null) {   // it goes out with the default transition, then the answer is given
+            afterExit = action;
+            run.exit(SystemClock.uptimeMillis());
+            invalidate();
+            handler.postDelayed(this::completeClose, ScreenTransition.OUT_MS + 80);
+            return;
+        }
         onClosed.closed();
         if (action != null) action.run();
+    }
+
+    private void completeClose() {
+        if (completed) return;
+        completed = true;
+        onClosed.closed();
+        if (afterExit != null) afterExit.run();
     }
 
     private void accept() {
@@ -310,6 +334,8 @@ final class TextEntryView extends View {
         int code = e.getKeyCode();
         if (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN || code == KeyEvent.KEYCODE_VOLUME_MUTE) return false;
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+        if (closed) return true;   // it is going out
+        if (run != null && run.entering(SystemClock.uptimeMillis()) && code != KeyEvent.KEYCODE_BACK) return true;   // only Back while it comes in
         if (code >= KeyEvent.KEYCODE_A && code <= KeyEvent.KEYCODE_Z) {
             if (down) type(String.valueOf((char) ('a' + code - KeyEvent.KEYCODE_A)));
             return true;
@@ -395,19 +421,30 @@ final class TextEntryView extends View {
         pop.step(dt);
         float a = Ui.clamp(appear.value);
 
-        // The same blurred backdrop as the screens behind (at once, so nothing flashes), a little darker for typing: the extra dark fades in.
-        fill.setShader(null);
-        fill.setColor(Brand.INK);
-        c.drawRect(0, 0, w, h, fill);
-        if (wall != null) {
-            box.set(0, 0, w, h);
-            photo.setAlpha(204);
-            c.drawBitmap(wall, null, box, photo);
+        float lift = 0;
+        if (run != null) {   // the screen it opened from, blurred; the keys rise in over it
+            long ms = SystemClock.uptimeMillis();
+            run.drawBackdrop(c, w, h, ms);
+            a = run.content(ms);
+            lift = (1 - a) * 18 * k;
+            if (run.finished(ms)) completeClose();
+        } else {
+            // The same blurred backdrop as the screens behind (at once, so nothing flashes), a little darker for typing: the extra dark fades in.
+            fill.setShader(null);
+            fill.setColor(Brand.INK);
+            c.drawRect(0, 0, w, h, fill);
+            if (wall != null) {
+                box.set(0, 0, w, h);
+                photo.setAlpha(204);
+                c.drawBitmap(wall, null, box, photo);
+            }
+            fill.setColor(Ui.alpha(Brand.INK, 0.38f * a));
+            c.drawRect(0, 0, w, h, fill);
         }
-        fill.setColor(Ui.alpha(Brand.INK, 0.38f * a));
-        c.drawRect(0, 0, w, h, fill);
 
         int layer = a < 0.999f ? c.saveLayerAlpha(0, 0, w, h, Math.round(255 * a)) : -1;
+        c.save();
+        c.translate(0, lift);
         float cx = w / 2f;
         c.drawText(req.title, cx, 118 * k, titleP);
 
@@ -498,6 +535,7 @@ final class TextEntryView extends View {
                 c.drawText(label, r2.centerX(), r2.centerY() + Ui.halfCap(keyP), keyP);
             }
         }
+        c.restore();
         if (layer >= 0) c.restoreToCount(layer);
         postInvalidateOnAnimation();   // the caret blinks
     }

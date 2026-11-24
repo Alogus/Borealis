@@ -6,7 +6,7 @@
 set -e
 
 TV="192.168.86.47:5555"
-DL="/mnt/c/Users/Andres/Downloads"
+DL="/mnt/c/Users/andre/Downloads"
 REPO="Alogus/Borealis"
 MSG="${1:?Escribe el mensaje de la version entre comillas}"
 LOCAL="$2"
@@ -52,3 +52,5 @@ gh release create "v$VER" \
   --repo "$REPO" --title "Borealis TV Launcher $VER" --notes "$MSG" --latest
 
 echo ">> Publicada la Release v$VER: https://github.com/$REPO/releases/tag/v$VER"
+
+rm -f "$ZIP" && echo ">> Parche borrado de Descargas."

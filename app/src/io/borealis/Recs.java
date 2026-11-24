@@ -48,9 +48,11 @@ final class Recs {
         /** "Seguir viendo" cards (Watched): how much has been watched (0 to 1, -1 = not shown), the image on disk and the app's name. */
         float progress = -1;
         File local;
+        File cover;   // a song's cover, sharp and square, drawn over the blurred card picture
         String label;
         boolean music, live;   // a song (Spotify...): the card shows what is playing, in real time while it plays
         /** Platform tag shown on the card (null: the service name) and an extra line under the card ("Serie · T2 E5 · Acción"). */
+        String remain;          // time left of a video, short ("3 min"): shown at the end of the progress line
         String chip, info, left, detail;   // left: time left; detail: the descriptive pieces (the card line puts them in an order that depends on its size)
     }
 

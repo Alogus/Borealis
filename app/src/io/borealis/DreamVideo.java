@@ -332,7 +332,6 @@ final class DreamVideo extends FrameLayout implements Dreamer, HomeData.Listener
         private final HomeData data;
         private final Paint scrim = new Paint();
         private Paint clockPaint, datePaint, weatherPaint, creditPaint, labelPaint, titlePaint, subPaint, barPaint, coverPaint;
-        private final Paint topScrim = new Paint();
         private final android.graphics.RectF box = new android.graphics.RectF();
         private final android.graphics.Path clip = new android.graphics.Path();
         private DreamInfo.Info info;

@@ -27,15 +27,6 @@ public final class GlobalButtonReceiver extends BroadcastReceiver {
         this.via = via;
     }
 
-    /** Listens while this process lives (covers the case where manifest receivers don't get the broadcast). */
-    static void register(Context app) {
-        try {
-            app.registerReceiver(new GlobalButtonReceiver("runtime"), new IntentFilter(ACTION));
-        } catch (RuntimeException e) {
-            AppLog.w("global button receiver: " + e.getMessage());
-        }
-    }
-
     @Override public void onReceive(Context c, Intent intent) {
         if (intent == null || !ACTION.equals(intent.getAction())) return;
         StringBuilder sb = new StringBuilder("global button (" + via + "):");
